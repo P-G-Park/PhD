@@ -1,5 +1,6 @@
 unlink('.Rdata'); rm(list=ls()) ; gc()
 pacman::p_load(tidyverse, readxl, Seurat, data.table, ggsci, ggpubr, harmony)
+setwd('..')
 source('./r_code/220811-function.R')
 `%notin%` <- Negate(`%in%`)
 
