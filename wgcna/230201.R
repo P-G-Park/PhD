@@ -1,5 +1,6 @@
 rm(list=ls())
 pacman::p_load(tidyverse, readxl, Seurat, data.table, gridExtra, flextable, harmony)
+setwd('..')
 source('./r_code/220811-function.R')
 
 #########################################################################
