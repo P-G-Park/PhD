@@ -43,11 +43,11 @@ dn_all1 <- dn_all %>% RenameIdents(
   '15' = 'PT',
   '18' = 'PT',
   '22' = 'PT',
-  '6' = 'DL, tAL',
+  '6' = 'DL/ tAL',
   '3' = 'TAL',
-  '5' = 'DCT, CD-P',
+  '5' = 'DCT/ CD-P',
   '8' = 'CD-I',
-  '12' = 'SMC, PERI',
+  '12' = 'SMC/ PERI',
   '4' = 'EC',
   '17' = 'PODO',
   '2' = 'IMM-1',
@@ -82,9 +82,7 @@ save(dn_immune, file = './raw_data/wgcna/dn_immune_v2.RData')
 load(file = './raw_data/wgcna/dn_immune_v2.RData')
 
 dn_immune$percent.mt <- PercentageFeatureSet(object = dn_immune, pattern = "^MT-")
-dn_immune <- dn_immune %>% subset(percent.mt <= 10) %>% clustering(resol = .6) 
-
-dn_immune <- dn_immune %>% FindClusters(resolution=1.1)
+dn_immune <- dn_immune %>% subset(percent.mt <= 10) %>% clustering(resol = 1.1) 
 
 mark <- c('HLA-DRA',  'LYZ', 'CD14', 'CD68',   'C1QC', 'MRC1','LYVE1',
           'FCN1','PLAC8',  'THBS1', 'VCAN',  'FCER1A', 'CD1C', 'S100A8','IL1R2',  
@@ -97,33 +95,35 @@ quickdot(dn_immune, feat = mark)
 
 dn_immune1 <- dn_immune %>% RenameIdents(
   '11' = 'KRM',
-  '7' = 'Mac/Mono',
-  '12' = 'Neutrophil',
-  '5' = 'cDC',
+  '10' = 'Infiltrating Mac',
+  '16' = 'Infiltrating Mac',
+  '17' = 'Monocyte',
+  '7' = 'Neutrophil',
+  '12' = 'cDC',
   '3' = 'CD4+ T',
   '2' = 'CD4+ T',
-  '15' = 'CD4+ T',
-  '17' = 'CD8+ T',
-  '1' = 'CD8+ T, effector',
-  '3' = 'NK',
-  '4' = 'NK',
-  '10' = 'NK(?)',
-  '7' = 'B',
-  '8' = 'B',
-  '9' = 'B',
-  '13' = 'B'
+  '6' = 'CD4+ T',
+  '1' = 'CD8+ T',
+  '4' = 'CD8+ T, effector',
+  '8' = 'CD8+ T, effector',
+  '0' = 'NK',
+  '9' = 'NK',
+  '5' = 'B',
+  '13' = 'B',
+  '15' = 'B',
+  '21' = 'B'
 )
 
 quick(dn_immune1)
-
+quickdot(dn_immune1, feat = rev(mark))
 # DEG_ident(dn_immune1)
 
 non_immune <- c('PT','DL, tAL','TAL','DCT, CD-P','CD-I','SMC, PERI','EC-1', 'EC-2', 'PODO', 20)
 immune <- c('KRM', 'Infiltrating Mac', 'Monocyte','cDC','Neutrophil','CD4+ T',
             'CD8+ T','CD8+ T, effector','NK','B')
 
-DEG_ident(dn_all1)
-DEG_ident(dn_immune)
+#DEG_ident(dn_all1)
+#DEG_ident(dn_immune)
 
 DEG_dn <- list()
 for (i in 0:18){
@@ -225,18 +225,21 @@ ggplot(ms, aes(x = umap_1, y = umap_2)) +
   ylim(c(-5, 5)) +
   guides(alpha = "none",
          fill = guide_legend(title= NULL))
+save(KRM, file = './raw_data/KRM.Rdata')
 
 # wgcna
+load(file = './raw_data/KRM.Rdata')
+
 pacman::p_load(tidyverse, readxl, Seurat, data.table, ggsci, ggpubr,
                hdWGCNA, cowplot, patchwork, WGCNA, harmony)
 theme_set(theme_cowplot()); set.seed(12345)
 
-KRM <- subset(KRM, patient_name %in% names(table(KRM$patient_name))[table(KRM$patient_name)>=20])
+KRM <- subset(KRM, patient_name %in% names(table(KRM$patient_name))[table(KRM$patient_name)>=30])
 
 KRM <- KRM %>% SetupForWGCNA(
-  gene_select = "fraction", fraction = 0.05, wgcna_name = "KRM") %>% 
+  gene_select = "fraction", fraction = 0.07, wgcna_name = "KRM") %>% 
   MetacellsByGroups(group.by = 'patient_name', 
-                    k = 7, min_cells = 20,  max_shared = 5, 
+                    k = 10, min_cells = 30,  max_shared = 4, 
                     ident.group = 'patient_name') %>% 
   NormalizeMetacells() %>% 
   SetDatExpr(group_name = names(table(KRM$patient_name)),
@@ -246,25 +249,31 @@ KRM <- KRM %>% SetupForWGCNA(
 plot_list <- PlotSoftPowers(KRM); wrap_plots(plot_list, ncol=2)
 
 KRM <- ConstructNetwork(KRM, #soft_power,
-                        minModuleSize = 50, deepSplit = 0,
+                        minModuleSize = 60, deepSplit = 0,
                         setDatExpr=FALSE, tom_name = 'KRM', overwrite_tom = TRUE)
 
+Module_num <- GetModules(KRM) %>% pull(module) %>% unique() %>% length() - 1
+
+KRM <- KRM %>% 
+  ModuleEigengenes(group.by.vars="patient_name") %>% 
+  ModuleConnectivity() %>% 
+  ResetModuleNames(new_name = "KRM")  %>% 
+  ModuleExprScore(n_genes = 25, method='Seurat')
+
+Col <- ggsci::pal_jco(alpha=0.8)(Module_num+1)
+modules$module_col <- Col[as.factor(modules$color) %>% as.integer()]
+module_col <- modules %>% mutate(module_col = if_else(module == 'grey', 'grey', module_col)) %>% 
+  pull(module_col)
+
+KRM@misc$KRM$wgcna_modules$color <- module_col
+
 PlotDendrogram(KRM, main='Dendrogram')
-
-KRM <- NormalizeData(KRM) %>%  
-  FindVariableFeatures(selection.method = "vst", nFeatures = num_HVG) %>% 
-  ScaleData() %>% 
-  ModuleEigengenes(group.by.vars="patient_name")
-KRM <- KRM %>% ModuleConnectivity() %>% 
-  ResetModuleNames(new_name = "KRM")  
-KRM <- KRM %>% ModuleExprScore(n_genes = 25, method='Seurat')
-
-
+PlotKMEs(KRM)
 
 modules <- GetModules(KRM); head(modules[,1:6])
 hub_df <- GetHubGenes(KRM, n_hubs = 10);hub_df
 hub_df %>% arrange(module, -kME) %>% 
-  select(-kME) %>% mutate(order = rep(1:10, 7)) %>% spread(key = module, value = gene_name) %>% 
+  select(-kME) %>% mutate(order = rep(1:10, Module_num)) %>% spread(key = module, value = gene_name) %>% 
   flextable::flextable()
 
 wrap_plots(ModuleFeaturePlot(KRM, features='hMEs', order=TRUE))
@@ -282,8 +291,10 @@ dbs <- listEnrichrDbs()
 dbs <- c('MSigDB_Hallmark_2020')
 
 gsea1 <- list()
-for (i in 1:7){
-  hub_df_i <- hub_df %>% filter(module == str_c('KRM', i))
+
+hub_df_100 <- GetHubGenes(KRM, n_hubs = 100) %>% arrange(module, -kME)
+for (i in 1:Module_num){
+  hub_df_i <- hub_df_100 %>% filter(module == str_c('KRM', i))
   enriched <- enrichr(hub_df_i$gene_name, dbs)
   
   gsea <- bind_rows(enriched)  %>% mutate(Term = str_replace(Term, ' \\(GO.*', ''))
@@ -292,30 +303,26 @@ for (i in 1:7){
     mutate(module = str_c('KRM ', i))
   gsea1[[i]] <- gsea
 }
-gsea1 <- bind_rows(gsea1) %>% mutate(number = letters[1:11] , value = -log10(Adjusted.P.value)) 
 
+gsea1 <- bind_rows(gsea1) 
+gsea1 <- gsea1 %>% mutate(number = letters[1:nrow(gsea1)] , value = -log10(Adjusted.P.value)) 
 ggplot(gsea1, aes(x = number, y = value)) +
   theme_pubr() +
   geom_col(aes(fill = module)) +
-  scale_x_discrete(limits = letters[11:1], labels = rev(gsea1$Term)) + xlab('') + ylab('-log(p value)')+
+  scale_x_discrete(limits = letters[nrow(gsea1):1], labels = rev(gsea1$Term)) + xlab('') + ylab('-log(p value)')+
   coord_flip() +
   scale_fill_brewer(type = 'qual', palette = 3) +theme(legend.title = element_blank())
 
+compare_KRM <- KRM@meta.data %>% select(disease_status, starts_with('KRM')) 
+compare_KRM <- compare_KRM[,colnames(compare_KRM) %>% sort()]
 
-tibble(disease = KRM$disease_status, 
-       KRM1 = KRM$KRM1,
-       KRM2 = KRM$KRM2,
-       KRM3 = KRM$KRM3,
-       KRM4 = KRM$KRM4,
-       KRM5 = KRM$KRM5,
-       KRM6 = KRM$KRM6,
-       KRM7 = KRM$KRM7) %>% 
-  pivot_longer(cols = 2:8) %>% 
-  ggboxplot(x = 'name',y = 'value', color = 'disease') +
-  geom_jitter(position=position_jitterdodge(jitter.width = .1, dodge.width = .8), aes(color = disease))+
+compare_KRM %>% 
+  pivot_longer(cols = 2:(Module_num+1)) %>% 
+  ggboxplot(x = 'name',y = 'value', color = 'disease_status') +
+  geom_jitter(position=position_jitterdodge(jitter.width = .1, dodge.width = .8), aes(color = disease_status))+
   xlab('') + 
   theme_pubr()  +
-  stat_compare_means(aes(group = disease), label = 'p.signif') +
+  stat_compare_means(aes(group = disease_status), label = 'p.signif') +
   guides(fill = guide_legend(title = NULL)) 
 
-save(KRM, dn_immune1, file = './raw_data/wgcna/wgcna_v1.RData')
+save(KRM, file = './raw_data/wgcna/wgcna_v1.RData')
