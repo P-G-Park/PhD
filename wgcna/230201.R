@@ -17,6 +17,9 @@ dn_all$percent.mt <- PercentageFeatureSet(object = dn_all, pattern = "^MT-")
 `%notin%` <- Negate(`%in%`)
 
 dn_all <- dn_all %>% subset(is.na(patient_name) | patient_name %notin% c('Wilms1', 'Wilms2','Wilms3','Trans'))
+
+dn_all$paper %>% table(useNA = 'always')
+
 dn_all <- dn_all %>% 
   NormalizeData() %>% 
   FindVariableFeatures(selection.method = "vst", nFeatures = num_HVG) %>% 
@@ -138,8 +141,6 @@ for (i in non_immune){
   dn_deg <- FindMarkers(subset_seurat, ident.1 = 'dn')
   DEG_dn[[i]] <- dn_deg %>% rownames_to_column('Gene_name')
 }
-
-asdf <- FindMarkers(dn_all1, ident.1 = 'EC-1',ident.2 = 'EC-2')
 
 writexl::write_xlsx(DEG_dn, 'DEG_dn.xlsx')
 
@@ -326,3 +327,147 @@ compare_KRM %>%
   guides(fill = guide_legend(title = NULL)) 
 
 save(KRM, file = './raw_data/wgcna/wgcna_v1.RData')
+
+
+# 230208 nichenet
+Idents_All <- as.character(Idents(dn_all1))
+Imm_Order <- match(names(Idents(dn_immune)), names(Idents(dn_all1)))
+Idents_All[Imm_Order] <- as.character(Idents(dn_immune1))
+
+
+dn_all2 <- dn_all1
+dn_all2$cell_type <- Idents_All
+
+dn_all2 <- subset(dn_all2, cell_type %notin% c('IMM-1','IMM-2','IMM-3','IMM-4','IMM-5','IMM-6','IMM-7','IMM-8'))
+Idents(dn_all2) <- dn_all2$cell_type
+
+pacman::p_load(nichenetr)
+
+ligand_target_matrix = readRDS('./ext_source/ligand_target_matrix.rds')
+lr_network = readRDS('./ext_source/lr_network.rds')
+weighted_networks = readRDS('./ext_source/weighted_networks.rds')
+weighted_networks_lr = weighted_networks$lr_sig %>% inner_join(lr_network %>% distinct(from,to), by = c("from","to"))
+
+
+# Receiver KRM -- sender other
+sender_celltypes <- c('PT','DL/ tAL','TAL','DCT/ CD-P','CD-I','SMC/ PERI','EC', 'PODO', 
+                      'Infiltrating Mac', 'Monocyte','cDC','Neutrophil','CD4+ T', 
+                      'CD8+ T','CD8+ T, effector','NK','B')
+
+nichenet_output = nichenet_seuratobj_aggregate(
+  seurat_obj = dn_all2, 
+  receiver = "KRM", 
+  condition_colname = "disease_status", condition_oi = "dn", condition_reference = "normal", 
+  sender = sender_celltypes, 
+  ligand_target_matrix = ligand_target_matrix, lr_network = lr_network, weighted_networks = weighted_networks, organism = "human")
+
+
+DotPlot(dn_all2, features = nichenet_output$top_ligands %>% rev(), cols = "RdYlBu") + RotatedAxis()
+DotPlot(dn_all2, features = nichenet_output$top_ligands %>% rev(), split.by = "disease_status") + RotatedAxis()
+
+nichenet_output$ligand_target_heatmap
+
+
+# Receiver other -- sender KRM
+sender = 'KRM'
+
+expressed_genes_sender = get_expressed_genes(sender, dn_all2, pct = 0.10)
+background_expressed_genes = expressed_genes_sender %>% .[. %in% colnames(ligand_target_matrix)]
+
+seurat_obj_sender = subset(dn_all2, idents = sender)
+seurat_obj_sender = SetIdent(seurat_obj_sender, value = seurat_obj_sender[["disease_status"]])
+
+condition_oi = "dn"
+condition_reference = "normal" 
+
+DE_table_sender = FindMarkers(object = seurat_obj_sender, ident.1 = condition_oi, 
+                                ident.2 = condition_reference, min.pct = 0.10) %>% rownames_to_column("gene")
+
+ligand_oi = DE_table_sender %>% filter(p_val_adj <= 0.05 & abs(avg_log2FC) >= 0.25) %>% pull(gene)
+ligand_oi = ligand_oi %>% .[. %in% colnames(ligand_target_matrix)]
+
+
+## receiver
+receiver_celltypes <- c('PT','DL/ tAL','TAL','DCT/ CD-P','CD-I','SMC/ PERI','EC', 'PODO', 
+                      'Infiltrating Mac', 'Monocyte','cDC','Neutrophil','CD4+ T', 
+                      'CD8+ T','CD8+ T, effector','NK','B')
+list_expressed_genes_receiver = receiver_celltypes %>% unique() %>% lapply(get_expressed_genes, dn_all2, 0.10)
+expressed_genes_receiver = list_expressed_genes_receiver %>% unlist() %>% unique()
+
+# list_DEGs_receiver <- list()
+# for (i in receiver_celltypes){
+#   list_DEGs_receiver[[i]] <- FindMarkers(dn_all2, ident.1 = i, only.pos = TRUE)
+# }
+# DEGs_receiver <- list_DEGs_receiver %>% bind_rows()
+# saveRDS(DEGs_receiver, file = './ext_source/DEGs_receiver.rds')
+readRDS(file = './ext_source/DEGs_receiver.rds')
+geneset_oi = DEGs_receiver %>% filter(p_val_adj <= 0.05 & abs(avg_log2FC) >= 0.25) %>% pull(gene)
+geneset_oi = geneset_oi %>% .[. %in% rownames(ligand_target_matrix)]
+
+#3
+ligands = lr_network %>% pull(from) %>% unique()
+receptors = lr_network %>% pull(to) %>% unique()
+
+expressed_ligands = intersect(ligands,expressed_genes_sender)
+expressed_receptors = intersect(receptors,expressed_genes_receiver)
+
+potential_ligands = lr_network %>% filter(from %in% expressed_ligands & to %in% expressed_receptors) %>% pull(from) %>% unique()
+
+#4
+ligand_activities = ligand_oi[ligand_oi %in% potential_ligands]
+
+
+#5
+active_ligand_target_links_df = ligand_activities %>% lapply(get_weighted_ligand_target_links,geneset = geneset_oi, ligand_target_matrix = ligand_target_matrix, n = 200) %>% bind_rows() %>% drop_na()
+
+active_ligand_target_links = prepare_ligand_target_visualization(ligand_target_df = active_ligand_target_links_df, ligand_target_matrix = ligand_target_matrix, cutoff = 0.33)
+
+order_ligands = intersect(best_upstream_ligands, colnames(active_ligand_target_links)) %>% rev() %>% make.names()
+order_targets = active_ligand_target_links_df$target %>% unique() %>% intersect(rownames(active_ligand_target_links)) %>% make.names()
+rownames(active_ligand_target_links) = rownames(active_ligand_target_links) %>% make.names() # make.names() for heatmap visualization of genes like H2-T23
+colnames(active_ligand_target_links) = colnames(active_ligand_target_links) %>% make.names() # make.names() for heatmap visualization of genes like H2-T23
+
+vis_ligand_target = active_ligand_target_links[order_targets,order_ligands] %>% t()
+
+p_ligand_target_network = vis_ligand_target %>% make_heatmap_ggplot("Prioritized ligands in other cells",
+                                                                    "Predicted target genes in KRM", color = "purple",
+                                                                    legend_position = "top", x_axis_position = "top",
+                                                                    legend_title = "Regulatory potential")  + 
+  theme(axis.text.x = element_text(face = "italic")) + scale_fill_gradient2(low = "whitesmoke",  high = "purple", breaks = c(0,0.0045,0.0090))
+p_ligand_target_network + NoLegend()
+
+#6
+DE_table_all = Idents(dn_all2) %>% levels() %>% intersect(sender_celltypes) %>% 
+  lapply(get_lfc_celltype, seurat_obj = dn_all2, condition_colname = "disease_status", 
+         condition_oi = condition_oi, condition_reference = condition_reference, expression_pct = 0.10, celltype_col = NULL) %>% 
+  reduce(full_join)
+DE_table_all[is.na(DE_table_all)] = 0
+
+ligand_activities_de = ligand_activities %>% 
+  select(test_ligand, pearson) %>% rename(ligand = test_ligand) %>% 
+  left_join(DE_table_all %>% rename(ligand = gene))
+ligand_activities_de[is.na(ligand_activities_de)] = 0
+
+lfc_matrix = ligand_activities_de  %>% select(-ligand, -pearson) %>% as.matrix() %>% magrittr::set_rownames(ligand_activities_de$ligand)
+rownames(lfc_matrix) = rownames(lfc_matrix) %>% make.names()
+
+order_ligands = order_ligands[order_ligands %in% rownames(lfc_matrix)]
+vis_ligand_lfc = lfc_matrix[order_ligands,] %>% as.matrix()
+
+colnames(vis_ligand_lfc) = 'KRM'
+
+p_ligand_lfc = vis_ligand_lfc %>% make_threecolor_heatmap_ggplot("","Log FC in KRM", low_color = "midnightblue",mid_color = "white", mid = median(vis_ligand_lfc), high_color = "red",legend_position = "top", x_axis_position = "top", legend_title = "LFC") + theme(axis.text.y = element_text(face = "italic"))
+p_ligand_lfc
+
+# ligand activities
+ligand_pearson_matrix = ligand_activities %>% select(pearson) %>% as.matrix() %>% magrittr::set_rownames(ligand_activities$test_ligand)
+
+rownames(ligand_pearson_matrix) = rownames(ligand_pearson_matrix) %>% make.names()
+colnames(ligand_pearson_matrix) = colnames(ligand_pearson_matrix) %>% make.names()
+
+vis_ligand_pearson = ligand_pearson_matrix[order_ligands, ] %>% as.matrix(ncol = 1) %>% magrittr::set_colnames("Pearson")
+p_ligand_pearson = vis_ligand_pearson %>% make_heatmap_ggplot("Prioritized ligands","Ligand activity", color = "darkorange",legend_position = "top", x_axis_position = "top", legend_title = "Pearson correlation coefficient\ntarget gene prediction ability)") + theme(legend.text = element_text(size = 9))
+
+p_ligand_pearson 
+
+
