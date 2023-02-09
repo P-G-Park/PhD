@@ -1,4 +1,4 @@
-rm(list=ls())
+rm(list=ls()); gc()
 pacman::p_load(tidyverse, readxl, Seurat, data.table, gridExtra, flextable, harmony)
 setwd('..')
 source('./r_code/220811-function.R')
@@ -89,7 +89,7 @@ dn_immune <- dn_immune %>% subset(percent.mt <= 10) %>% clustering(resol = 1.1)
 
 mark <- c('HLA-DRA',  'LYZ', 'CD14', 'CD68',   'C1QC', 'MRC1','LYVE1',
           'FCN1','PLAC8',  'THBS1', 'VCAN',  'FCER1A', 'CD1C', 'S100A8','IL1R2',  
-          'CD3E', 'TRAC', 'CD4','CD8A', 'GZMB', 'IFNG', 'IGKC', 'JCHAIN', 'CD79A','NKG7', 'KLRD1',
+          'CD3E', 'TRAC', 'CD4', 'CD40LG','CD8A', 'GZMB', 'IFNG', 'IGKC', 'JCHAIN', 'CD79A','NKG7', 'KLRD1',
           'CD40LG')
 
 quick(dn_immune)
@@ -114,14 +114,15 @@ dn_immune1 <- dn_immune %>% RenameIdents(
   '5' = 'B',
   '13' = 'B',
   '15' = 'B',
-  '21' = 'B'
+  '21' = 'B',
+  '18' = 'Cytokine-secreting B'
 )
 
 quick(dn_immune1)
 quickdot(dn_immune1, feat = rev(mark))
 # DEG_ident(dn_immune1)
 
-non_immune <- c('PT','DL, tAL','TAL','DCT, CD-P','CD-I','SMC, PERI','EC-1', 'EC-2', 'PODO', 20)
+non_immune <- c('PT','DL, tAL','TAL','DCT, CD-P','CD-I','SMC, PERI','EC-1', 'EC-2', 'PODO')
 immune <- c('KRM', 'Infiltrating Mac', 'Monocyte','cDC','Neutrophil','CD4+ T',
             'CD8+ T','CD8+ T, effector','NK','B')
 
@@ -192,23 +193,32 @@ ggplot(gsea_H, aes(reorder(pathway_new, NES), NES)) +
   theme_minimal()+
   theme(legend.position = c(0.85, 0.5))
 
-OxPos <- gsea_H$leadingEdge[[1]]
+OxPhos <- gsea_H$leadingEdge[[1]]
+DNA_repair <- gsea_H$leadingEdge[[2]]
+Coag <- gsea_H$leadingEdge[[3]]
 KRM <- AddModuleScore(
   object = KRM,
-  features = OxPos,
+  features = OxPhos,
   nbin = 12,
   ctrl = 100,
-  name = 'OxPos'
+  name = 'OxPhos'
 )
 require(ggpubr)
-tibble(disease = KRM$disease_status, OxPos = KRM$OxPos1) %>% 
-  ggboxplot(x = 'disease',y = 'OxPos', color = 'disease') +
+tibble(disease = KRM$disease_status, OxPhos = KRM$OxPhos1) %>% 
+  ggboxplot(x = 'disease',y = 'OxPhos', color = 'disease') +
   geom_jitter(position=position_jitterdodge(jitter.width = .1, dodge.width = .8), aes(color = disease))+
   xlab('') + 
   theme_pubr()  +
   stat_compare_means(group = 'disease', label = 'p.signif') +
   guides(fill = guide_legend(title = NULL)) 
 
+tibble(disease = KRM$disease_status, OxPhos = KRM$OxPhos1) %>% 
+  ggviolin(x = 'disease',y = 'OxPhos', color = 'disease', add = 'mean_sd') +
+  xlab('') + 
+  theme_pubr()  +
+  stat_compare_means(group = 'disease', label = 'p.signif',
+                     label.x = 1.5, label.y = 5) +
+  guides(fill = guide_legend(title = NULL)) 
 
 quick(KRM)
 
@@ -262,6 +272,7 @@ KRM <- KRM %>%
   ModuleExprScore(n_genes = 25, method='Seurat')
 
 Col <- ggsci::pal_jco(alpha=0.8)(Module_num+1)
+modules <- GetModules(KRM) 
 modules$module_col <- Col[as.factor(modules$color) %>% as.integer()]
 module_col <- modules %>% mutate(module_col = if_else(module == 'grey', 'grey', module_col)) %>% 
   pull(module_col)
@@ -270,8 +281,7 @@ KRM@misc$KRM$wgcna_modules$color <- module_col
 
 PlotDendrogram(KRM, main='Dendrogram')
 PlotKMEs(KRM)
-
-modules <- GetModules(KRM); head(modules[,1:6])
+?plotDendroAndColors
 hub_df <- GetHubGenes(KRM, n_hubs = 10);hub_df
 hub_df %>% arrange(module, -kME) %>% 
   select(-kME) %>% mutate(order = rep(1:10, Module_num)) %>% spread(key = module, value = gene_name) %>% 
@@ -321,6 +331,15 @@ compare_KRM %>%
   pivot_longer(cols = 2:(Module_num+1)) %>% 
   ggboxplot(x = 'name',y = 'value', color = 'disease_status') +
   geom_jitter(position=position_jitterdodge(jitter.width = .1, dodge.width = .8), aes(color = disease_status))+
+  xlab('') + 
+  theme_pubr()  +
+  stat_compare_means(aes(group = disease_status), label = 'p.signif') +
+  guides(fill = guide_legend(title = NULL)) 
+
+compare_KRM %>% 
+  pivot_longer(cols = 2:(Module_num+1)) %>%
+  mutate(disease_status = fct_relevel(disease_status, 'normal','dn')) %>% 
+  ggviolin(x = 'name',y = 'value', color = 'disease_status', add = 'mean_sd', width = 2) +
   xlab('') + 
   theme_pubr()  +
   stat_compare_means(aes(group = disease_status), label = 'p.signif') +
@@ -469,5 +488,40 @@ vis_ligand_pearson = ligand_pearson_matrix[order_ligands, ] %>% as.matrix(ncol =
 p_ligand_pearson = vis_ligand_pearson %>% make_heatmap_ggplot("Prioritized ligands","Ligand activity", color = "darkorange",legend_position = "top", x_axis_position = "top", legend_title = "Pearson correlation coefficient\ntarget gene prediction ability)") + theme(legend.text = element_text(size = 9))
 
 p_ligand_pearson 
+
+
+# scenic
+pacman::p_load(Seurat, SCopeLoomR, SCENIC)
+
+# exprMat <- as.matrix(GetAssayData(KRM, slot = 'count'))
+# SCopeLoomR::build_loom('wgcna_v1.loom', dgem = exprMat)
+
+pyscenic_wgcna <- SCopeLoomR::open_loom('./raw_data/wgcna/wgcna_v1_output.loom')
+
+regulons_incidMat <- get_regulons(pyscenic_wgcna, column.attr.name = 'Regulons')
+regulons <- regulonsToGeneLists(regulons_incidMat)
+regulonsAUC <- get_regulons_AUC(pyscenic_wgcna, column.attr.name='RegulonsAUC')
+regulonsAucThresholds <- get_regulon_thresholds(pyscenic_wgcna)
+embeddings <- get_embeddings(pyscenic_wgcna)
+
+regulonActivity_byCellType <- sapply(split(rownames(cellInfo), cellInfo$CellType),
+                                     function(cells) rowMeans(getAUC(regulonsAUC)[,cells]))
+regulonActivity_byCellType_Scaled <- t(scale(t(regulonActivity_byCellType_old), center = T, scale=T))
+
+Top_10_regulon <- regulonActivity_byCellType %>% as_tibble(rownames = 'gene') %>% 
+  mutate(relative = dn / normal) %>% 
+  arrange(-relative) %>% 
+  slice(c(1:10, (n()-10):n())) %>% arrange (-dn) %>% select(-relative)  
+
+Top_10_regulon %>% flextable::flextable() %>% flextable::colformat_double(digits = 5)
+
+ggplot(Top_10_regulon %>% pivot_longer(2:3), aes(x = name, y = gene)) +
+  geom_point(aes(size = value, color = ggsci::pal_aaas()(1))) +
+  scale_y_discrete(limits = rev(Top_10_regulon$gene)) +
+  scale_radius(range = c(1,5)) +
+  ggpubr::theme_pubr() +
+  NoLegend() + xlab('') + ylab('')
+
+
 
 
