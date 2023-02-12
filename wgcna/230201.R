@@ -14,8 +14,6 @@ dn_all@meta.data <- cbind(dn_all@meta.data, metadata %>%
                             select(patient_name, disease_status, paper, channel))
 dn_all$percent.mt <- PercentageFeatureSet(object = dn_all, pattern = "^MT-")
 
-`%notin%` <- Negate(`%in%`)
-
 dn_all <- dn_all %>% subset(is.na(patient_name) | patient_name %notin% c('Wilms1', 'Wilms2','Wilms3','Trans'))
 
 dn_all$paper %>% table(useNA = 'always')
@@ -46,6 +44,7 @@ dn_all1 <- dn_all %>% RenameIdents(
   '15' = 'PT',
   '18' = 'PT',
   '22' = 'PT',
+  '16' = 'DL/ tAL',
   '6' = 'DL/ tAL',
   '3' = 'TAL',
   '5' = 'DCT/ CD-P',
@@ -79,9 +78,23 @@ dn_immune <- subset(dn_all1, idents = c('IMM-1',
 
 save(dn_immune, file = './raw_data/wgcna/dn_immune_v2.RData')
 
+
+# prepare for 14, 22 sorting (230210)
+
+Idents_All <- as.character(Idents(dn_all1))
+Imm_Order <- match(names(Idents(dn_immune)), names(Idents(dn_all1)))
+Idents_All[Imm_Order] <- as.character(Idents(dn_immune1))
+
+dn_all2 <- dn_all1
+dn_all2$cell_type <- Idents_All
+
+dn_all2 <- subset(dn_all2, cell_type %notin% c('IMM-1','IMM-2','IMM-3','IMM-4','IMM-5','IMM-6','IMM-7','IMM-8'))
+Idents(dn_all2) <- dn_all2$cell_type
+
+quick(dn_all2)
+marker_16 <- FindMarkers(dn_all, ident.1 = 16)
+
 #########################################################################
-
-
 load(file = './raw_data/wgcna/dn_immune_v2.RData')
 
 dn_immune$percent.mt <- PercentageFeatureSet(object = dn_immune, pattern = "^MT-")
@@ -89,8 +102,8 @@ dn_immune <- dn_immune %>% subset(percent.mt <= 10) %>% clustering(resol = 1.1)
 
 mark <- c('HLA-DRA',  'LYZ', 'CD14', 'CD68',   'C1QC', 'MRC1','LYVE1',
           'FCN1','PLAC8',  'THBS1', 'VCAN',  'FCER1A', 'CD1C', 'S100A8','IL1R2',  
-          'CD3E', 'TRAC', 'CD4', 'CD40LG','CD8A', 'GZMB', 'IFNG', 'IGKC', 'JCHAIN', 'CD79A','NKG7', 'KLRD1',
-          'CD40LG')
+          'CD3E', 'TRAC', 'CD4', 'CD40LG','CD8A', 'GZMB', 'IFNG', 'IGKC', 'JCHAIN', 'CD79A','NKG7', 'KLRD1'
+          )
 
 quick(dn_immune)
 quickdot(dn_immune, feat = mark)
@@ -102,6 +115,7 @@ dn_immune1 <- dn_immune %>% RenameIdents(
   '16' = 'Infiltrating Mac',
   '17' = 'Monocyte',
   '7' = 'Neutrophil',
+  '20' = 'Neutrophil',
   '12' = 'cDC',
   '3' = 'CD4+ T',
   '2' = 'CD4+ T',
@@ -115,23 +129,27 @@ dn_immune1 <- dn_immune %>% RenameIdents(
   '13' = 'B',
   '15' = 'B',
   '21' = 'B',
-  '18' = 'Cytokine-secreting B'
+  '18' = 'Cytokine-secreting B',
+  '19' = 'Proliferating cell'
 )
 
 quick(dn_immune1)
 quickdot(dn_immune1, feat = rev(mark))
-# DEG_ident(dn_immune1)
 
-non_immune <- c('PT','DL, tAL','TAL','DCT, CD-P','CD-I','SMC, PERI','EC-1', 'EC-2', 'PODO')
-immune <- c('KRM', 'Infiltrating Mac', 'Monocyte','cDC','Neutrophil','CD4+ T',
-            'CD8+ T','CD8+ T, effector','NK','B')
+dn_immune1$cell_type <- as.character(Idents(dn_immune1))
+dn_immune1 <- dn_immune1 %>% subset(cell_type %notin% c(14, 22))
 
 #DEG_ident(dn_all1)
-#DEG_ident(dn_immune)
+#DEG_ident(dn_immune1)
+
+non_immune <- c('PT','DL, tAL','TAL','DCT, CD-P','CD-I','SMC, PERI','EC', 'PODO')
+immune <- c('KRM', 'Infiltrating Mac', 'Monocyte','Neutrophil', 'cDC',
+            'CD4+ T', 'CD8+ T','CD8+ T, effector','NK','B')
+
 
 DEG_dn <- list()
-for (i in 0:18){
-  subset_seurat <- dn_immune %>% subset(idents = i)
+for (i in immune){
+  subset_seurat <- dn_immune1 %>% subset(idents = i)
   Idents(subset_seurat) <- subset_seurat$disease_status
   dn_deg <- FindMarkers(subset_seurat, ident.1 = 'dn', only.pos = TRUE)
   DEG_dn[[i]] <- dn_deg %>% rownames_to_column('Gene_name')
@@ -235,7 +253,11 @@ ggplot(ms, aes(x = umap_1, y = umap_2)) +
   theme_pubr(base_size = 12, legend = 'right') +
   ylim(c(-5, 5)) +
   guides(alpha = "none",
-         fill = guide_legend(title= NULL))
+         fill = guide_legend(title= NULL)) +
+  scale_fill_manual(values = c('firebrick1',gray(0.6, alpha = 1)),
+                    labels = c('Diabetic nephropathy', 'Normal')) +
+  theme(legend.position = c(.85, .9))
+
 save(KRM, file = './raw_data/KRM.Rdata')
 
 # wgcna
@@ -304,6 +326,8 @@ dbs <- c('MSigDB_Hallmark_2020')
 gsea1 <- list()
 
 hub_df_100 <- GetHubGenes(KRM, n_hubs = 100) %>% arrange(module, -kME)
+# hub_df_100 %>% group_split(module) %>% writexl::write_xlsx('hub_df_230210.xlsx')
+
 for (i in 1:Module_num){
   hub_df_i <- hub_df_100 %>% filter(module == str_c('KRM', i))
   enriched <- enrichr(hub_df_i$gene_name, dbs)
@@ -342,8 +366,9 @@ compare_KRM %>%
   ggviolin(x = 'name',y = 'value', color = 'disease_status', add = 'mean_sd', width = 2) +
   xlab('') + 
   theme_pubr()  +
-  stat_compare_means(aes(group = disease_status), label = 'p.signif') +
-  guides(fill = guide_legend(title = NULL)) 
+  stat_compare_means(aes(group = disease_status), label = 'p.signif') + ylab('Module score') +
+  scale_color_discrete(labels = c('Normal','Diabetic nephropathy'))+
+  theme(legend.title = element_blank())
 
 save(KRM, file = './raw_data/wgcna/wgcna_v1.RData')
 
@@ -378,6 +403,7 @@ nichenet_output = nichenet_seuratobj_aggregate(
   receiver = "KRM", 
   condition_colname = "disease_status", condition_oi = "dn", condition_reference = "normal", 
   sender = sender_celltypes, 
+  geneset = 'up',
   ligand_target_matrix = ligand_target_matrix, lr_network = lr_network, weighted_networks = weighted_networks, organism = "human")
 
 
@@ -385,7 +411,6 @@ DotPlot(dn_all2, features = nichenet_output$top_ligands %>% rev(), cols = "RdYlB
 DotPlot(dn_all2, features = nichenet_output$top_ligands %>% rev(), split.by = "disease_status") + RotatedAxis()
 
 nichenet_output$ligand_target_heatmap
-
 
 # Receiver other -- sender KRM
 sender = 'KRM'
@@ -419,8 +444,9 @@ expressed_genes_receiver = list_expressed_genes_receiver %>% unlist() %>% unique
 # }
 # DEGs_receiver <- list_DEGs_receiver %>% bind_rows()
 # saveRDS(DEGs_receiver, file = './ext_source/DEGs_receiver.rds')
-readRDS(file = './ext_source/DEGs_receiver.rds')
-geneset_oi = DEGs_receiver %>% filter(p_val_adj <= 0.05 & abs(avg_log2FC) >= 0.25) %>% pull(gene)
+DEGs_receiver <- readRDS(file = './ext_source/DEGs_receiver.rds')
+geneset_oi = DEGs_receiver %>% rownames_to_column('gene') %>% 
+  filter(p_val_adj <= 0.05 & avg_log2FC >= 0.25) %>% pull(gene)
 geneset_oi = geneset_oi %>% .[. %in% rownames(ligand_target_matrix)]
 
 #3
@@ -441,7 +467,7 @@ active_ligand_target_links_df = ligand_activities %>% lapply(get_weighted_ligand
 
 active_ligand_target_links = prepare_ligand_target_visualization(ligand_target_df = active_ligand_target_links_df, ligand_target_matrix = ligand_target_matrix, cutoff = 0.33)
 
-order_ligands = intersect(best_upstream_ligands, colnames(active_ligand_target_links)) %>% rev() %>% make.names()
+order_ligands = intersect(ligand_activities, colnames(active_ligand_target_links)) %>% rev() %>% make.names()
 order_targets = active_ligand_target_links_df$target %>% unique() %>% intersect(rownames(active_ligand_target_links)) %>% make.names()
 rownames(active_ligand_target_links) = rownames(active_ligand_target_links) %>% make.names() # make.names() for heatmap visualization of genes like H2-T23
 colnames(active_ligand_target_links) = colnames(active_ligand_target_links) %>% make.names() # make.names() for heatmap visualization of genes like H2-T23
@@ -493,10 +519,13 @@ p_ligand_pearson
 # scenic
 pacman::p_load(Seurat, SCopeLoomR, SCENIC)
 
-# exprMat <- as.matrix(GetAssayData(KRM, slot = 'count'))
-# SCopeLoomR::build_loom('wgcna_v1.loom', dgem = exprMat)
+exprMat <- as.matrix(GetAssayData(KRM, slot = 'count'))
+exprMat <-  exprMat[rowSums(exprMat) >= 3,]
 
-pyscenic_wgcna <- SCopeLoomR::open_loom('./raw_data/wgcna/wgcna_v1_output.loom')
+SCopeLoomR::build_loom('wgcna_v1.loom', dgem = exprMat)
+
+load(file = './raw_data/wgcna/wgcna_v1.RData')
+pyscenic_wgcna <- SCopeLoomR::open_loom('./pyscenic/wgcna_v1_output.loom')
 
 regulons_incidMat <- get_regulons(pyscenic_wgcna, column.attr.name = 'Regulons')
 regulons <- regulonsToGeneLists(regulons_incidMat)
@@ -504,14 +533,36 @@ regulonsAUC <- get_regulons_AUC(pyscenic_wgcna, column.attr.name='RegulonsAUC')
 regulonsAucThresholds <- get_regulon_thresholds(pyscenic_wgcna)
 embeddings <- get_embeddings(pyscenic_wgcna)
 
-regulonActivity_byCellType <- sapply(split(rownames(cellInfo), cellInfo$CellType),
+
+
+regulonActivity_byCellType <- sapply(split(colnames(KRM), KRM$disease_status),
                                      function(cells) rowMeans(getAUC(regulonsAUC)[,cells]))
-regulonActivity_byCellType_Scaled <- t(scale(t(regulonActivity_byCellType_old), center = T, scale=T))
+regulonActivity_byCellType_Scaled <- t(scale(t(regulonActivity_byCellType), center = T, scale=T))
 
 Top_10_regulon <- regulonActivity_byCellType %>% as_tibble(rownames = 'gene') %>% 
   mutate(relative = dn / normal) %>% 
   arrange(-relative) %>% 
-  slice(c(1:10, (n()-10):n())) %>% arrange (-dn) %>% select(-relative)  
+  slice(c(1:20, (n()-20):n()))
+
+asdf <- Top_10_regulon %>% column_to_rownames('gene') %>% select(relative) %>% 
+  as.matrix() %>% 
+  make_heatmap_ggplot('a','b', color = 'purple')
+
+col_fun = circlize::colorRamp2(c(0, 1, 3), c("yellow", "white", "green"))
+
+ComplexHeatmap::Heatmap(Top_10_regulon %>% column_to_rownames('gene') %>% select(relative) %>% 
+                          as.matrix(),
+                        col = col_fun,
+                        cluster_rows = FALSE,
+                        heatmap_legend_param = list(title = ''))
+
+?ComplexHeatmap::Heatmap
+
+?make_heatmap_ggplot
+
+
+
+Top_10_regulon
 
 Top_10_regulon %>% flextable::flextable() %>% flextable::colformat_double(digits = 5)
 
@@ -523,5 +574,5 @@ ggplot(Top_10_regulon %>% pivot_longer(2:3), aes(x = name, y = gene)) +
   NoLegend() + xlab('') + ylab('')
 
 
-
+make_heatmap_ggplot
 
