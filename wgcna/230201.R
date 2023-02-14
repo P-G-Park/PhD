@@ -1,6 +1,7 @@
 rm(list=ls()); gc()
-pacman::p_load(tidyverse, readxl, Seurat, data.table, gridExtra, flextable, harmony)
 setwd('..')
+
+pacman::p_load(tidyverse, readxl, Seurat, data.table, gridExtra, flextable, harmony)
 source('./r_code/220811-function.R')
 
 #########################################################################
@@ -133,11 +134,11 @@ dn_immune1 <- dn_immune %>% RenameIdents(
   '19' = 'Proliferating cell'
 )
 
-quick(dn_immune1)
-quickdot(dn_immune1, feat = rev(mark))
-
 dn_immune1$cell_type <- as.character(Idents(dn_immune1))
 dn_immune1 <- dn_immune1 %>% subset(cell_type %notin% c(14, 22))
+
+quick(dn_immune1)
+quickdot(dn_immune1, feat = rev(mark))
 
 #DEG_ident(dn_all1)
 #DEG_ident(dn_immune1)
@@ -163,21 +164,11 @@ for (i in non_immune){
 
 writexl::write_xlsx(DEG_dn, 'DEG_dn.xlsx')
 
-################################# clustering
+################################# pathway analysis, DEGs
 KRM <- subset(dn_immune1, idents = 'KRM') %>% clustering(resol = 0.3)
-
 Idents(KRM) <- KRM$disease_status
 KRM_dn_DEG <- FindMarkers(KRM, ident.1 = 'dn')
 KRM_dn_DEG %>% arrange(desc(avg_log2FC))
-KRM_dn_DEG$p_val_adj
-EnhancedVolcano::EnhancedVolcano(KRM_dn_DEG, x = 'avg_log2FC',
-                                 y = 'p_val_adj', 
-                                 lab = row.names(KRM_dn_DEG),
-                                 pCutoff = 10e-10,
-                                 col=c('black', 'black', 'black', 'red3'),
-                                 drawConnectors = TRUE,
-                                 title = NULL,
-                                 subtitle = NULL)
 
 pacman::p_load(fgsea, msigdbr, ggsci)
 
@@ -198,22 +189,102 @@ gsea_H <- gsea_H %>%
          significant = if_else(pval < 0.05, 'p Value < 0.05', 'p value > 0.05'),
          Edge = unlist(lapply(gsea_H$leadingEdge, function(x)str_c(x, collapse=', ')))) %>% 
   arrange(desc(NES))
-ggplot(gsea_H, aes(reorder(pathway_new, NES), NES)) +
+
+gsea_H %>% write_xlsx('gsea_hallmark_230213.xlsx')
+
+ggplot(gsea_H %>% filter(significant == 'p Value < 0.05'), aes(reorder(pathway_new, NES), NES)) +
   geom_col(aes(fill=significant)) +
   scale_fill_manual(values = c(pal_nejm(alpha = 0.8)(1),pal_nejm(alpha = 0.9)(1)),
                     breaks = c('p Value < 0.05')) +
   coord_flip() +
-  labs(
-    title="Hallmark pathways NES from GSEA") + 
+  labs(title="Hallmark pathways NES from GSEA") + 
   guides(fill=guide_legend(title=NULL)) +
   xlab('')+
   ylab('Normalized enrichment score')+
-  theme_minimal()+
-  theme(legend.position = c(0.85, 0.5))
+  ggpubr::theme_pubclean()+
+ # theme_classic2()+
+  theme(legend.position = c(0.85, 0.5))+
+  NoLegend()
+
+subset_gsea <- function(subset_seurat){
+  Idents(subset_seurat) <- subset_seurat$disease_status
+  subset_DEG <- FindMarkers(subset_seurat, ident.1 = 'dn')
+  subset_DEG %>% arrange(desc(avg_log2FC))
+  
+  pacman::p_load(fgsea, msigdbr, ggsci)
+  
+  dn_gene <- subset_DEG$avg_log2FC
+  names(dn_gene) <- rownames(subset_DEG)
+  
+  h_pathway <- msigdbr(species = "human", category = "H")
+  h_list <- split(x = h_pathway$gene_symbol, f = h_pathway$gs_name)
+  
+  gsea_H <- fgsea(pathways=h_list, stats=dn_gene, nperm=100000) %>% 
+    as_tibble() %>% 
+    arrange(padj)
+  gsea_H <- gsea_H %>% 
+    mutate(pathway_new = str_replace(pathway, 'HALLMARK_',''),
+           pathway_new = str_replace(pathway_new, '_',' '),
+           pathway_new = str_replace(pathway_new, '_',' '),
+           pathway_new = str_replace(pathway_new, '_',' '),
+           significant = if_else(pval < 0.05, 'p Value < 0.05', 'p value > 0.05'),
+           Edge = unlist(lapply(gsea_H$leadingEdge, function(x)str_c(x, collapse=', ')))) %>% 
+    arrange(desc(NES))
+  
+  gsea_H %>% write_xlsx('gsea_hallmark_230213.xlsx')
+  
+  p <- ggplot(gsea_H, aes(reorder(pathway_new, NES), NES)) +
+    geom_col(aes(fill=significant)) +
+    scale_fill_manual(values = c(pal_nejm(alpha = 0.8)(1),pal_nejm(alpha = 0.9)(1)),
+                      breaks = c('p Value < 0.05')) +
+    coord_flip() +
+    labs(title="Hallmark pathways NES from GSEA") + 
+    guides(fill=guide_legend(title=NULL)) +
+    xlab('')+
+    ylab('Normalized enrichment score')+
+    ggpubr::theme_pubclean()+
+    # theme_classic2()+
+    theme(legend.position = c(0.85, 0.5))
+  return(p)
+}
+Infilt <- S4Vectors::subset(dn_immune1, idents = 'Infiltrating Mac')
+subset_gsea(Infilt)
+Mono <- S4Vectors::subset(dn_immune1, idents = 'Monocyte')
+subset_gsea(Mono)
+
+Idents(dn_immune1)
 
 OxPhos <- gsea_H$leadingEdge[[1]]
 DNA_repair <- gsea_H$leadingEdge[[2]]
 Coag <- gsea_H$leadingEdge[[3]]
+
+OxPhos_select <- KRM_dn_DEG %>% rownames_to_column('gene') %>% 
+  filter(gene %in% OxPhos, avg_log2FC > .5, p_val_adj < 10^-5) %>% 
+  pull(gene)
+
+my_lab <- c(expression(list(Log['2']*FC > 0.5,Adj.Pval < 10^-5)))
+p <- EnhancedVolcano::EnhancedVolcano(KRM_dn_DEG, x = 'avg_log2FC',
+                                      y = 'p_val_adj', 
+                                      lab = row.names(KRM_dn_DEG),
+                                      selectLab = OxPhos_select,
+                                      pCutoff = 10e-5,
+                                      FCcutoff = .5,
+                                      col=c('black', 'black', 'black', 'red3'),
+                                      drawConnectors = TRUE,
+                                      gridlines.major = F,
+                                      gridlines.minor = F,
+                                      title = NULL,
+                                      subtitle = NULL,
+                                      max.overlaps = Inf)
+p + scale_colour_manual(values = c(NS = 'black', 
+                                   FC = 'black', 
+                                   P = 'black', 
+                                   FC_P = 'red'),
+                        labels = my_lab,
+                        breaks = c(FC_P = 'FC_P')) +
+  xlim(c(-4, 3))
+
+
 KRM <- AddModuleScore(
   object = KRM,
   features = OxPhos,
@@ -222,40 +293,68 @@ KRM <- AddModuleScore(
   name = 'OxPhos'
 )
 require(ggpubr)
-tibble(disease = KRM$disease_status, OxPhos = KRM$OxPhos1) %>% 
-  ggboxplot(x = 'disease',y = 'OxPhos', color = 'disease') +
-  geom_jitter(position=position_jitterdodge(jitter.width = .1, dodge.width = .8), aes(color = disease))+
-  xlab('') + 
-  theme_pubr()  +
-  stat_compare_means(group = 'disease', label = 'p.signif') +
-  guides(fill = guide_legend(title = NULL)) 
 
-tibble(disease = KRM$disease_status, OxPhos = KRM$OxPhos1) %>% 
-  ggviolin(x = 'disease',y = 'OxPhos', color = 'disease', add = 'mean_sd') +
+tibble(disease = KRM$disease_status, OxPhos = KRM$OxPhos1) %>%
+  mutate(disease = fct_relevel(disease, c('normal','dn'))) %>% 
+  ggviolin(x = 'disease',y = 'OxPhos', fill = 'disease', add = 'mean_sd') +
   xlab('') + 
   theme_pubr()  +
   stat_compare_means(group = 'disease', label = 'p.signif',
                      label.x = 1.5, label.y = 5) +
-  guides(fill = guide_legend(title = NULL)) 
+  theme(legend.title = element_blank()) +
+  scale_fill_brewer(palette = "Dark2", labels = c('Normal', 'DN'))+
+  scale_x_discrete(labels = c('', '')) +
+  ylab('OxPhos')
+  
 
+rain_height <- .1
+tibble(disease = KRM$disease_status, OxPhos = KRM$OxPhos1) %>%
+  mutate(disease = fct_relevel(disease, c('normal','dn'))) %>% 
+  ggplot(aes(x = "", y = OxPhos, fill = disease)) +
+  introdataviz::geom_flat_violin(trim=FALSE, alpha = 0.4,
+                                 position = position_nudge(x = rain_height+.05)) +
+  # rain
+  #geom_point(aes(colour = disease), size = 2, alpha = .5, show.legend = FALSE, 
+  #           position = position_jitter(width = rain_height * 0.5, height = 0)) +
+  # boxplots
+  #geom_boxplot(width = rain_height, alpha = 0.4, show.legend = FALSE, 
+  #             outlier.shape = NA,
+  #             position = position_nudge(x = -rain_height*2)) +
+  # mean and SE point in the cloud
+  stat_summary(fun.data = mean_cl_normal, mapping = aes(color = disease), show.legend = FALSE,
+               position = position_nudge(x = rain_height * 2)) +
+  stat_compare_means(group = 'disease', label = 'p.signif',
+                     position = position_nudge(x = rain_height), label.y = 1)+
+  coord_flip() +
+  # custom colours and theme
+  scale_fill_brewer(palette = "Dark2", name = "",
+                    labels = c('Normal', 'DN')) +
+  scale_x_discrete(name = "", expand = c(0, 0, 0, 0)) +
+  scale_colour_brewer(palette = "Dark2") +
+  ylab('OxPhos')+
+  theme_pubclean()
+
+?scale_x_discrete
 quick(KRM)
 
 ms <- tibble(umap_1 = KRM@reductions$umap@cell.embeddings[,1],
              umap_2 = KRM@reductions$umap@cell.embeddings[,2],
-             disease_status = KRM$disease_status)
+             disease_status = KRM$disease_status) %>% 
+  mutate(disease = fct_relevel(disease_status, 'normal', 'dn'))
 
 set.seed(123)
+
 require(ggpubr)
 ggplot(ms, aes(x = umap_1, y = umap_2)) +
   stat_density_2d(geom = "polygon",
-                  aes(alpha = ..level.., fill = disease_status),
+                  aes(alpha = ..level.., fill = disease),
                   bins = 7) +
   theme_pubr(base_size = 12, legend = 'right') +
   ylim(c(-5, 5)) +
   guides(alpha = "none",
          fill = guide_legend(title= NULL)) +
-  scale_fill_manual(values = c('firebrick1',gray(0.6, alpha = 1)),
-                    labels = c('Diabetic nephropathy', 'Normal')) +
+  scale_fill_manual(values = c(gray(0.6, alpha = 1), 'firebrick1'),
+                    labels = c('Normal', 'DN')) +
   theme(legend.position = c(.85, .9))
 
 save(KRM, file = './raw_data/KRM.Rdata')
@@ -302,8 +401,8 @@ module_col <- modules %>% mutate(module_col = if_else(module == 'grey', 'grey', 
 KRM@misc$KRM$wgcna_modules$color <- module_col
 
 PlotDendrogram(KRM, main='Dendrogram')
-PlotKMEs(KRM)
-?plotDendroAndColors
+PlotKMEs(KRM, text_size = 3)
+
 hub_df <- GetHubGenes(KRM, n_hubs = 10);hub_df
 hub_df %>% arrange(module, -kME) %>% 
   select(-kME) %>% mutate(order = rep(1:10, Module_num)) %>% spread(key = module, value = gene_name) %>% 
@@ -349,28 +448,33 @@ ggplot(gsea1, aes(x = number, y = value)) +
   scale_fill_brewer(type = 'qual', palette = 3) +theme(legend.title = element_blank())
 
 compare_KRM <- KRM@meta.data %>% select(disease_status, starts_with('KRM')) 
-compare_KRM <- compare_KRM[,colnames(compare_KRM) %>% sort()]
-
-compare_KRM %>% 
-  pivot_longer(cols = 2:(Module_num+1)) %>% 
-  ggboxplot(x = 'name',y = 'value', color = 'disease_status') +
-  geom_jitter(position=position_jitterdodge(jitter.width = .1, dodge.width = .8), aes(color = disease_status))+
-  xlab('') + 
-  theme_pubr()  +
-  stat_compare_means(aes(group = disease_status), label = 'p.signif') +
-  guides(fill = guide_legend(title = NULL)) 
+compare_KRM <- compare_KRM[,colnames(compare_KRM) %>% sort()] 
 
 compare_KRM %>% 
   pivot_longer(cols = 2:(Module_num+1)) %>%
   mutate(disease_status = fct_relevel(disease_status, 'normal','dn')) %>% 
-  ggviolin(x = 'name',y = 'value', color = 'disease_status', add = 'mean_sd', width = 2) +
+  ggviolin(x = 'name',y = 'value', fill = 'disease_status', add = 'mean_sd', width = 2) +
   xlab('') + 
   theme_pubr()  +
   stat_compare_means(aes(group = disease_status), label = 'p.signif') + ylab('Module score') +
-  scale_color_discrete(labels = c('Normal','Diabetic nephropathy'))+
+  scale_fill_brewer(palette = "Dark2", name = "",
+                    labels = c('Normal', 'DN')) +
   theme(legend.title = element_blank())
 
-save(KRM, file = './raw_data/wgcna/wgcna_v1.RData')
+compare_KRM %>% 
+  pivot_longer(cols = 2:(Module_num+1)) %>%
+  mutate(disease_status = fct_relevel(disease_status, 'normal','dn')) %>% 
+  ggplot(aes(x = name, y = value, fill = disease_status)) +
+  introdataviz::geom_split_violin(alpha = 1, trim = FALSE, width = 2) +
+  stat_summary(fun.data = "mean_se", geom = "pointrange", show.legend = F, 
+               position = position_dodge(.175)) +
+  scale_fill_brewer(palette = "Dark2", name = "",
+                    labels = c('Normal', 'DN')) + xlab('') + ylab('Module Score')+
+  theme_pubr()
+
+
+save(KRM, Module_num,  file = './raw_data/wgcna/wgcna_v1.RData')
+load(file = './raw_data/wgcna/wgcna_v1.RData')
 
 
 # 230208 nichenet
@@ -576,3 +680,41 @@ ggplot(Top_10_regulon %>% pivot_longer(2:3), aes(x = name, y = gene)) +
 
 make_heatmap_ggplot
 
+#################################################################################
+# pathway_analysis_inferring regulator
+pacman::p_load(CIE, rcytoscapejs, clusterProfiler, ReactomePA)
+?runCIE
+KRM_dn_DEG
+CIE::runCIE()
+
+asdf <- KRM_dn_DEG %>% bind_cols(select(org.Hs.eg.db, keys = rownames(KRM_dn_DEG), columns = 'ENTREZID', keytype = 'SYMBOL')) %>% 
+  dplyr::select('entrez' = ENTREZID, 'pval' = p_val_adj, 'fc' = avg_log2FC) %>% 
+  filter(!is.na(entrez)) 
+geneList <- 2^asdf$fc
+names(geneList) <- asdf$entrez
+geneList <- sort(geneList, decreasing  = T)
+y <- gsePathway(geneList, 
+                pvalueCutoff = 0.2,
+                pAdjustMethod = "BH", 
+                verbose = FALSE)
+head(y)
+
+viewPathway("Cristae formation", 
+            readable = TRUE, 
+            foldChange = geneList)
+
+viewPathway("Mitochondrial biogenesis", 
+            readable = TRUE, 
+            foldChange = geneList)
+
+viewPathway("Formation of ATP by chemiosmotic coupling", 
+            readable = TRUE, 
+            foldChange = geneList)
+
+viewPathway("Respiratory electron transport, ATP synthesis by chemiosmotic coupling, and heat production by uncoupling proteins.", 
+            readable = TRUE, 
+            foldChange = geneList)
+
+viewPathway("The citric acid (TCA) cycle and respiratory electron transport", 
+            readable = TRUE, 
+            foldChange = geneList)
