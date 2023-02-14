@@ -92,8 +92,6 @@ dn_all2$cell_type <- Idents_All
 dn_all2 <- subset(dn_all2, cell_type %notin% c('IMM-1','IMM-2','IMM-3','IMM-4','IMM-5','IMM-6','IMM-7','IMM-8'))
 Idents(dn_all2) <- dn_all2$cell_type
 
-quick(dn_all2)
-marker_16 <- FindMarkers(dn_all, ident.1 = 16)
 
 #########################################################################
 load(file = './raw_data/wgcna/dn_immune_v2.RData')
@@ -190,7 +188,7 @@ gsea_H <- gsea_H %>%
          Edge = unlist(lapply(gsea_H$leadingEdge, function(x)str_c(x, collapse=', ')))) %>% 
   arrange(desc(NES))
 
-gsea_H %>% write_xlsx('gsea_hallmark_230213.xlsx')
+# gsea_H %>% write_xlsx('gsea_hallmark_230213.xlsx')
 
 ggplot(gsea_H %>% filter(significant == 'p Value < 0.05'), aes(reorder(pathway_new, NES), NES)) +
   geom_col(aes(fill=significant)) +
@@ -448,7 +446,8 @@ ggplot(gsea1, aes(x = number, y = value)) +
   scale_fill_manual(values = Col[c(1,2,4,5)]) +
   theme(legend.title = element_blank())
 
-scale_fill_discrete()
+hub_2 <-  hub_df_100 %>% filter(module == 'KRM2')
+enriched_2 <- enrichr(hub_2$gene_name, dbs)
 
 compare_KRM <- KRM@meta.data %>% select(disease_status, starts_with('KRM')) 
 compare_KRM <- compare_KRM[,colnames(compare_KRM) %>% sort()] 
@@ -482,7 +481,7 @@ load(file = './raw_data/wgcna/wgcna_v1.RData')
 
 # 230208 nichenet
 Idents_All <- as.character(Idents(dn_all1))
-Imm_Order <- match(names(Idents(dn_immune)), names(Idents(dn_all1)))
+Imm_Order <- match(names(Idents(dn_immune1)), names(Idents(dn_all1)))
 Idents_All[Imm_Order] <- as.character(Idents(dn_immune1))
 
 
@@ -491,6 +490,8 @@ dn_all2$cell_type <- Idents_All
 
 dn_all2 <- subset(dn_all2, cell_type %notin% c('IMM-1','IMM-2','IMM-3','IMM-4','IMM-5','IMM-6','IMM-7','IMM-8'))
 Idents(dn_all2) <- dn_all2$cell_type
+
+save(dn_all2, file = './raw_data/wgcna/dn_nichenetr.RData')
 
 pacman::p_load(nichenetr)
 
@@ -517,7 +518,11 @@ nichenet_output = nichenet_seuratobj_aggregate(
 DotPlot(dn_all2, features = nichenet_output$top_ligands %>% rev(), cols = "RdYlBu") + RotatedAxis()
 DotPlot(dn_all2, features = nichenet_output$top_ligands %>% rev(), split.by = "disease_status") + RotatedAxis()
 
+nichenet_output$ligand_differential_expression_heatmap
 nichenet_output$ligand_target_heatmap
+
+nichenet_output$top_targets %in% OxPhos
+nichenet_output$top_receptors
 
 # Receiver other -- sender KRM
 sender = 'KRM'
@@ -625,12 +630,10 @@ p_ligand_pearson
 
 # scenic
 pacman::p_load(Seurat, SCopeLoomR, SCENIC)
-
-exprMat <- as.matrix(GetAssayData(KRM, slot = 'count'))
-exprMat <-  exprMat[rowSums(exprMat) >= 3,]
-
-SCopeLoomR::build_loom('wgcna_v1.loom', dgem = exprMat)
-
+# 
+# exprMat <- as.matrix(GetAssayData(KRM, slot = 'count'))
+# exprMat <-  exprMat[rowSums(exprMat) >= 3,]
+# SCopeLoomR::build_loom('wgcna_v1.loom', dgem = exprMat)
 load(file = './raw_data/wgcna/wgcna_v1.RData')
 pyscenic_wgcna <- SCopeLoomR::open_loom('./pyscenic/wgcna_v1_output.loom')
 
@@ -649,11 +652,8 @@ regulonActivity_byCellType_Scaled <- t(scale(t(regulonActivity_byCellType), cent
 Top_10_regulon <- regulonActivity_byCellType %>% as_tibble(rownames = 'gene') %>% 
   mutate(relative = dn / normal) %>% 
   arrange(-relative) %>% 
-  slice(c(1:20, (n()-20):n()))
-
-asdf <- Top_10_regulon %>% column_to_rownames('gene') %>% select(relative) %>% 
-  as.matrix() %>% 
-  make_heatmap_ggplot('a','b', color = 'purple')
+  slice(c(1:20, (n()-20):n())) %>% 
+  mutate(gene = str_replace(gene, '\\(\\+\\)',''))
 
 col_fun = circlize::colorRamp2(c(0, 1, 3), c("yellow", "white", "green"))
 
@@ -661,7 +661,10 @@ ComplexHeatmap::Heatmap(Top_10_regulon %>% column_to_rownames('gene') %>% select
                           as.matrix(),
                         col = col_fun,
                         cluster_rows = FALSE,
+                        show_column_names = FALSE,
                         heatmap_legend_param = list(title = ''))
+
+?Heatmap
 
 ?ComplexHeatmap::Heatmap
 
