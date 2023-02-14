@@ -439,13 +439,16 @@ for (i in 1:Module_num){
 }
 
 gsea1 <- bind_rows(gsea1) 
-gsea1 <- gsea1 %>% mutate(number = letters[1:nrow(gsea1)] , value = -log10(Adjusted.P.value)) 
+gsea1 <- gsea1 %>% mutate(number = factor(letters[1:nrow(gsea1)]) , value = -log10(Adjusted.P.value)) 
 ggplot(gsea1, aes(x = number, y = value)) +
   theme_pubr() +
   geom_col(aes(fill = module)) +
   scale_x_discrete(limits = letters[nrow(gsea1):1], labels = rev(gsea1$Term)) + xlab('') + ylab('-log(p value)')+
   coord_flip() +
-  scale_fill_brewer(type = 'qual', palette = 3) +theme(legend.title = element_blank())
+  scale_fill_manual(values = Col[c(1,2,4,5)]) +
+  theme(legend.title = element_blank())
+
+scale_fill_discrete()
 
 compare_KRM <- KRM@meta.data %>% select(disease_status, starts_with('KRM')) 
 compare_KRM <- compare_KRM[,colnames(compare_KRM) %>% sort()] 
