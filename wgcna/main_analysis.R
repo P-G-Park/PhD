@@ -440,10 +440,11 @@ gsea1 <- bind_rows(gsea1)
 gsea1 <- gsea1 %>% mutate(number = factor(letters[1:nrow(gsea1)]) , value = -log10(Adjusted.P.value)) 
 ggplot(gsea1, aes(x = number, y = value)) +
   theme_pubr() +
-  geom_col(aes(fill = module)) +
+  geom_col(aes(color = module), fill = NA, size = .75) +
   scale_x_discrete(limits = letters[nrow(gsea1):1], labels = rev(gsea1$Term)) + xlab('') + ylab('-log(p value)')+
   coord_flip() +
-  scale_fill_manual(values = Col[c(1,2,4,5)]) +
+  scale_fill_manual(values = 'white', labels = '')+
+  scale_color_manual(values = Col[c(1,2,4,5)]) +
   theme(legend.title = element_blank())
 
 hub_2 <-  hub_df_100 %>% filter(module == 'KRM2')
@@ -455,29 +456,18 @@ compare_KRM <- compare_KRM[,colnames(compare_KRM) %>% sort()]
 compare_KRM %>% 
   pivot_longer(cols = 2:(Module_num+1)) %>%
   mutate(disease_status = fct_relevel(disease_status, 'normal','dn')) %>% 
-  ggviolin(x = 'name',y = 'value', fill = 'disease_status', add = 'mean_sd', width = 2) +
-  xlab('') + 
-  theme_pubr()  +
-  stat_compare_means(aes(group = disease_status), label = 'p.signif') + ylab('Module score') +
-  scale_fill_brewer(palette = "Dark2", name = "",
-                    labels = c('Normal', 'DN')) +
-  theme(legend.title = element_blank())
-
-compare_KRM %>% 
-  pivot_longer(cols = 2:(Module_num+1)) %>%
-  mutate(disease_status = fct_relevel(disease_status, 'normal','dn')) %>% 
   ggplot(aes(x = name, y = value, fill = disease_status)) +
   introdataviz::geom_split_violin(alpha = 1, trim = FALSE, width = 2) +
   stat_summary(fun.data = "mean_se", geom = "pointrange", show.legend = F, 
                position = position_dodge(.175)) +
   scale_fill_brewer(palette = "Dark2", name = "",
                     labels = c('Normal', 'DN')) + xlab('') + ylab('Module Score')+
+  stat_compare_means(aes(group = disease_status), label = 'p.signif',
+                     label.y = 27) + 
   theme_pubr()
-
 
 save(KRM, Module_num,  file = './raw_data/wgcna/wgcna_v1.RData')
 load(file = './raw_data/wgcna/wgcna_v1.RData')
-
 
 # 230208 nichenet
 Idents_All <- as.character(Idents(dn_all1))
