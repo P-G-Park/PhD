@@ -2,16 +2,19 @@ pacman::p_load(Seurat, tidyverse)
 
 setwd('./raw_data/attempt_2/221108_st/kpmp_data')
 
-st_21_019 <- Load10X_Spatial(data.dir = getwd(),
+st_21_019 <- Load10X_Spatial(data.dir = './raw_data/st/kpmp_data',
                 filename = '21-019.h5',
                 image = new(
                   Class = 'VisiumV1',
-                  image = png::readPNG('21-019.png'),
+                  image = png::readPNG('./raw_data/st/kpmp_data/21-019.png'),
                   scale.factors = scalefactors(1,2000,1,0.1),
-                  coordinates = read.csv('21-019.csv', row.names = 1),
+                  coordinates = read.csv('./raw_data/st/kpmp_data/21-019.csv', row.names = 1),
                   spot.radius = 0.03
                 )) %>% 
   SCTransform(assay = "Spatial", verbose = FALSE)
+
+subset(st_21_019, anterior1_imagerow > 500)
+
 
 st_M61 <- Load10X_Spatial(data.dir = getwd(),
                              filename = 'M61.h5',
