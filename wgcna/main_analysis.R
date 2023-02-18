@@ -146,21 +146,21 @@ immune <- c('KRM', 'Infiltrating Mac', 'Monocyte','Neutrophil', 'cDC',
             'CD4+ T', 'CD8+ T','CD8+ T, effector','NK','B')
 
 
-DEG_dn <- list()
-for (i in immune){
-  subset_seurat <- dn_immune1 %>% subset(idents = i)
-  Idents(subset_seurat) <- subset_seurat$disease_status
-  dn_deg <- FindMarkers(subset_seurat, ident.1 = 'dn', only.pos = TRUE)
-  DEG_dn[[i]] <- dn_deg %>% rownames_to_column('Gene_name')
-}
-for (i in non_immune){
-  subset_seurat <- dn_all1 %>% subset(idents = i)
-  Idents(subset_seurat) <- subset_seurat$disease_status
-  dn_deg <- FindMarkers(subset_seurat, ident.1 = 'dn')
-  DEG_dn[[i]] <- dn_deg %>% rownames_to_column('Gene_name')
-}
-
-writexl::write_xlsx(DEG_dn, 'DEG_dn.xlsx')
+# DEG_dn <- list()
+# for (i in immune){
+#   subset_seurat <- dn_immune1 %>% subset(idents = i)
+#   Idents(subset_seurat) <- subset_seurat$disease_status
+#   dn_deg <- FindMarkers(subset_seurat, ident.1 = 'dn', only.pos = TRUE)
+#   DEG_dn[[i]] <- dn_deg %>% rownames_to_column('Gene_name')
+# }
+# for (i in non_immune){
+#   subset_seurat <- dn_all1 %>% subset(idents = i)
+#   Idents(subset_seurat) <- subset_seurat$disease_status
+#   dn_deg <- FindMarkers(subset_seurat, ident.1 = 'dn')
+#   DEG_dn[[i]] <- dn_deg %>% rownames_to_column('Gene_name')
+# }
+# 
+# writexl::write_xlsx(DEG_dn, 'DEG_dn.xlsx')
 
 ################################# pathway analysis, DEGs
 KRM <- subset(dn_immune1, idents = 'KRM') %>% clustering(resol = 0.3)
@@ -229,7 +229,7 @@ subset_gsea <- function(subset_seurat){
            Edge = unlist(lapply(gsea_H$leadingEdge, function(x)str_c(x, collapse=', ')))) %>% 
     arrange(desc(NES))
   
-  gsea_H %>% write_xlsx('gsea_hallmark_230213.xlsx')
+  gsea_H %>% writexl::write_xlsx('gsea_hallmark_230213.xlsx')
   
   p <- ggplot(gsea_H, aes(reorder(pathway_new, NES), NES)) +
     geom_col(aes(fill=significant)) +
@@ -246,11 +246,32 @@ subset_gsea <- function(subset_seurat){
   return(p)
 }
 Infilt <- S4Vectors::subset(dn_immune1, idents = 'Infiltrating Mac')
-subset_gsea(Infilt)
 Mono <- S4Vectors::subset(dn_immune1, idents = 'Monocyte')
+
+subset_gsea(Infilt)
 subset_gsea(Mono)
 
-Idents(dn_immune1)
+Idents(Infilt) <- Infilt$disease_status
+Idents(Mono) <- Mono$disease_status
+
+
+cytokines <- c('IL1A', 'IL1B', 'IL2', 'IL3', 'IL4', 'IL5', 'IL6', 'IL7', 'IL8', 'IL10',
+               'IL11', 'IL12A', 'IL13', 'IL16', 'IL18', 'CXCL1', 'CXCL2', 'CXCL3', 
+               'TNF')
+
+phagocytosis <- c('AXL', 'MERTK', 'TYRO3', 'CD34', 'CD36', 'OLR1', 'STAB2', 'AGER', 'TIMD4')
+
+bind_cols(
+  FoldChange(KRM, ident.1 = 'dn', features = cytokines) %>% select(1),
+  FoldChange(Infilt, ident.1 = 'dn', features = cytokines) %>% select(1),
+  FoldChange(Mono, ident.1 = 'dn', features = cytokines) %>% select(1)
+) %>% 
+  `colnames<-`(c('KRM', 'Infiltrating Mac', 'Monocyte')) %>% 
+  ComplexHeatmap::Heatmap(
+                          cluster_rows = FALSE,
+                          show_column_names = TRUE)
+
+FoldChange(KRM, ident.1 = 'dn', features = phagocytosis)
 
 OxPhos <- gsea_H$leadingEdge[[1]]
 DNA_repair <- gsea_H$leadingEdge[[2]]
@@ -332,9 +353,6 @@ tibble(disease = KRM$disease_status, OxPhos = KRM$OxPhos1) %>%
   ylab('OxPhos')+
   theme_pubclean()
 
-?scale_x_discrete
-quick(KRM)
-
 ms <- tibble(umap_1 = KRM@reductions$umap@cell.embeddings[,1],
              umap_2 = KRM@reductions$umap@cell.embeddings[,2],
              disease_status = KRM$disease_status) %>% 
@@ -356,6 +374,8 @@ ggplot(ms, aes(x = umap_1, y = umap_2)) +
   theme(legend.position = c(.85, .9))
 
 save(KRM, file = './raw_data/KRM.Rdata')
+
+
 
 # wgcna
 load(file = './raw_data/KRM.Rdata')
