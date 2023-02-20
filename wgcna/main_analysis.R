@@ -245,12 +245,14 @@ subset_gsea <- function(subset_seurat){
     theme(legend.position = c(0.85, 0.5))
   return(p)
 }
+KRM <- S4Vectors::subset(dn_immune1, idents = 'KRM')
 Infilt <- S4Vectors::subset(dn_immune1, idents = 'Infiltrating Mac')
 Mono <- S4Vectors::subset(dn_immune1, idents = 'Monocyte')
 
 subset_gsea(Infilt)
 subset_gsea(Mono)
 
+Idents(KRM) <- KRM$disease_status
 Idents(Infilt) <- Infilt$disease_status
 Idents(Mono) <- Mono$disease_status
 
@@ -261,17 +263,26 @@ cytokines <- c('IL1A', 'IL1B', 'IL2', 'IL3', 'IL4', 'IL5', 'IL6', 'IL7', 'IL8', 
 
 phagocytosis <- c('AXL', 'MERTK', 'TYRO3', 'CD34', 'CD36', 'OLR1', 'STAB2', 'AGER', 'TIMD4')
 
-bind_cols(
-  FoldChange(KRM, ident.1 = 'dn', features = cytokines) %>% select(1),
-  FoldChange(Infilt, ident.1 = 'dn', features = cytokines) %>% select(1),
-  FoldChange(Mono, ident.1 = 'dn', features = cytokines) %>% select(1)
-) %>% 
-  `colnames<-`(c('KRM', 'Infiltrating Mac', 'Monocyte')) %>% 
-  ComplexHeatmap::Heatmap(
-                          cluster_rows = FALSE,
-                          show_column_names = TRUE)
+fibrosis <- c('COL1A1', 'COL3A1', 'AREG',  'MMP9', 'TIMP1', 
+              'TGFB1', 'FN1', 'ACTA2', 'CTGF')
 
-FoldChange(KRM, ident.1 = 'dn', features = phagocytosis)
+Heatmap_DEGs <- function(x){
+  bind_cols(
+  FoldChange(KRM, ident.1 = 'dn', features = x) %>% select(1),
+  FoldChange(Infilt, ident.1 = 'dn', features = x) %>% select(1),
+  FoldChange(Mono, ident.1 = 'dn', features = x) %>% select(1)
+  ) %>% 
+  `colnames<-`(c('KRM', 'Infiltrating Mac', 'Monocyte')) %>% 
+  ComplexHeatmap::Heatmap(name = ' ',
+                          cluster_rows = FALSE, cluster_columns = FALSE,   
+                          show_column_names = TRUE,
+                          column_names_rot = 30)
+}
+
+Heatmap_DEGs(cytokines)
+Heatmap_DEGs(phagocytosis)
+Heatmap_DEGs(fibrosis)
+
 
 OxPhos <- gsea_H$leadingEdge[[1]]
 DNA_repair <- gsea_H$leadingEdge[[2]]
