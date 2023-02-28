@@ -263,7 +263,7 @@ cytokines <- c('IL1A', 'IL1B', 'IL2', 'IL3', 'IL4', 'IL5', 'IL6', 'IL7', 'IL8', 
 
 phagocytosis <- c('AXL', 'MERTK', 'TYRO3', 'CD34', 'CD36', 'OLR1', 'STAB2', 'AGER', 'TIMD4')
 
-fibrosis <- c('COL1A1', 'COL3A1', 'AREG',  'MMP9', 'TIMP1', 
+fibrosis <- c('COL1A1', 'COL3A1', 'AREG',  'MMP9', 'TIMP1', 'VIM',
               'TGFB1', 'FN1', 'ACTA2', 'CTGF')
 
 Heatmap_DEGs <- function(x){
@@ -515,6 +515,7 @@ Idents(dn_all2) <- dn_all2$cell_type
 save(dn_all2, file = './raw_data/wgcna/dn_nichenetr.RData')
 
 pacman::p_load(nichenetr)
+load(file = './raw_data/wgcna/dn_nichenetr.RData')
 
 ligand_target_matrix = readRDS('./ext_source/ligand_target_matrix.rds')
 lr_network = readRDS('./ext_source/lr_network.rds')
@@ -532,6 +533,15 @@ nichenet_output = nichenet_seuratobj_aggregate(
   receiver = "KRM", 
   condition_colname = "disease_status", condition_oi = "dn", condition_reference = "normal", 
   sender = sender_celltypes, 
+  geneset = 'up',
+  ligand_target_matrix = ligand_target_matrix, lr_network = lr_network, weighted_networks = weighted_networks, organism = "human")
+
+
+nichenet_output = nichenet_seuratobj_aggregate(
+  seurat_obj = dn_all2, 
+  receiver = "CD-I", 
+  condition_colname = "disease_status", condition_oi = "dn", condition_reference = "normal", 
+  sender = 'TAL', 
   geneset = 'up',
   ligand_target_matrix = ligand_target_matrix, lr_network = lr_network, weighted_networks = weighted_networks, organism = "human")
 
@@ -745,3 +755,42 @@ viewPathway("Respiratory electron transport, ATP synthesis by chemiosmotic coupl
 viewPathway("The citric acid (TCA) cycle and respiratory electron transport", 
             readable = TRUE, 
             foldChange = geneList)
+
+# trajectory analysis
+pacman::p_load(monocle3)
+
+myeloid_cells <- dn_immune1 %>% subset(idents = c('cDC', 'KRM', 'Monocyte', 'Neutrophil', 'Infiltrating Mac'))
+myeloid_cells <- myeloid_cells %>% RunUMAP(reduction = 'harmony', dims = 1:30)
+
+myeloid_cds <- new_cell_data_set(
+  myeloid_cells@assays$RNA@data,
+  cell_metadata  = myeloid_cells@meta.data
+)
+
+myeloid_cds <- preprocess_cds(myeloid_cds, num_dim = 50)
+myeloid_cds <- align_cds(myeloid_cds, alignment_group = "channel")
+myeloid_cds <- reduce_dimension(myeloid_cds)
+
+myeloid_cds@reduce_dim_aux$UMAP$model$umap_model$embedding <- myeloid_cells@reductions$umap@cell.embeddings
+myeloid_cds@int_colData@listData$reducedDims@listData$UMAP <- myeloid_cells@reductions$umap@cell.embeddings
+
+plot_cells(myeloid_cds, label_groups_by_cluster=FALSE,  color_cells_by = "cell_type", reduction_method = 'UMAP')
+
+myeloid_cds <- cluster_cells(myeloid_cds)
+plot_cells(myeloid_cds, color_cells_by = "partition")
+myeloid_cds <- learn_graph(myeloid_cds)
+plot_cells(myeloid_cds,
+           color_cells_by = "cell_type",
+           label_groups_by_cluster=FALSE,
+           label_leaves=FALSE,
+           label_branch_points=TRUE,
+           graph_label_size = 3)
+myeloid_cds <- order_cells(myeloid_cds)
+plot_cells(myeloid_cds,
+           color_cells_by = "pseudotime",
+           label_cell_groups=FALSE,
+           label_leaves=FALSE,
+           label_branch_points=FALSE,
+           graph_label_size=1.5)
+
+save(myeloid_cds, myeloid_cells, file = './raw_data/monocle_v1.Rdata')
