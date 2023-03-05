@@ -643,7 +643,7 @@ viewPathway("The citric acid (TCA) cycle and respiratory electron transport",
 # trajectory analysis
 pacman::p_load(monocle3)
 
-myeloid_cells <- dn_immune1 %>% subset(idents = c('cDC', 'KRM', 'Monocyte', 'Neutrophil', 'Infiltrating Mac'))
+myeloid_cells <- dn_immune1 %>% subset(idents = c('cDC', 'KRM', 'Monocyte', 'Infiltrating Mac'))
 myeloid_cells <- myeloid_cells %>% RunUMAP(reduction = 'harmony', dims = 1:30)
 
 myeloid_cds <- new_cell_data_set(
@@ -663,6 +663,8 @@ plot_cells(myeloid_cds, label_groups_by_cluster=FALSE,  color_cells_by = "cell_t
 myeloid_cds <- cluster_cells(myeloid_cds)
 plot_cells(myeloid_cds, color_cells_by = "partition")
 myeloid_cds <- learn_graph(myeloid_cds)
+myeloid_cds <- order_cells(myeloid_cds)
+
 plot_cells(myeloid_cds,
            color_cells_by = "cell_type",
            label_groups_by_cluster=FALSE,
@@ -670,15 +672,12 @@ plot_cells(myeloid_cds,
            label_branch_points=TRUE,
            graph_label_size = 4,
            group_label_size = 4)
-myeloid_cds <- order_cells(myeloid_cds)
 plot_cells(myeloid_cds,
            color_cells_by = "pseudotime",
            label_cell_groups=FALSE,
            label_leaves=FALSE,
            label_branch_points=FALSE,
            graph_label_size=1.5)
-
-?plot_cells
 
 save(myeloid_cds, myeloid_cells, file = './raw_data/monocle_v1.Rdata')
 load(file = './raw_data/monocle_v1.Rdata')
