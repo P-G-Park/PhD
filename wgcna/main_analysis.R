@@ -539,7 +539,24 @@ nichenet_output$ligand_target_heatmap
 nichenet_output$top_targets %in% OxPhos
 nichenet_output$top_receptors
 
-?nichenet_seuratobj_aggregate
+nichenet_output$ligand_activities
+  
+nichenet_output$ligand_activity_target_heatmap
+
+ligand_activity <- nichenet_output$ligand_activities %>% pull(pearson)
+
+ligand_activity <- ligand_activity[1:11] %>% as.matrix(ncol = 1) 
+
+ligand_pearson_matrix = (nichenet_output$ligand_activities) %>% select(pearson) %>% as.matrix() %>% 
+  magrittr::set_rownames(nichenet_output$ligand_activities$test_ligand)
+vis_ligand_pearson = ligand_pearson_matrix[14:1, ] %>% as.matrix(ncol = 1) %>% magrittr::set_colnames("Pearson")
+p_ligand_pearson = vis_ligand_pearson %>%
+  make_heatmap_ggplot("Prioritized ligands","Ligand activity", 
+                      color = "darkorange",legend_position = "top", x_axis_position = "top", 
+                      legend_title = "Pearson correlation coefficient\ntarget gene prediction ability")
+
+ligand_target_matrix <- (nichenet_output$ligand_target_matrix)[,c(4,5, 1:3, 6:39)]
+
 
 # Receiver other -- sender KRM
 
@@ -664,7 +681,6 @@ myeloid_cds <- cluster_cells(myeloid_cds)
 plot_cells(myeloid_cds, color_cells_by = "partition")
 myeloid_cds <- learn_graph(myeloid_cds)
 myeloid_cds <- order_cells(myeloid_cds)
-
 plot_cells(myeloid_cds,
            color_cells_by = "cell_type",
            label_groups_by_cluster=FALSE,
