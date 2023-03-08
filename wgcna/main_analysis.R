@@ -80,6 +80,10 @@ dn_immune <- subset(dn_all1, idents = c('IMM-1',
 save(dn_immune, file = './raw_data/wgcna/dn_immune_v2.RData')
 
 
+mito <- c('COX4I1', 'COX4I2', 'COX5A', 'NDUFS1', 'NDUFS2', 'MT-ND3', 'SDHA')
+
+quickdot(dn_all1, feat = mito)
+
 # prepare for 14, 22 sorting (230210)
 
 Idents_All <- as.character(Idents(dn_all1))
@@ -92,8 +96,9 @@ dn_all2$cell_type <- Idents_All
 dn_all2 <- subset(dn_all2, cell_type %notin% c('IMM-1','IMM-2','IMM-3','IMM-4','IMM-5','IMM-6','IMM-7','IMM-8'))
 Idents(dn_all2) <- dn_all2$cell_type
 
+quickdot(dn_all2, feat = mito)
 
-#########################################################################
+S#########################################################################
 load(file = './raw_data/wgcna/dn_immune_v2.RData')
 
 dn_immune$percent.mt <- PercentageFeatureSet(object = dn_immune, pattern = "^MT-")
@@ -138,11 +143,11 @@ dn_immune1 <- dn_immune1 %>% subset(cell_type %notin% c(14, 22))
 quick(dn_immune1)
 quickdot(dn_immune1, feat = rev(mark))
 
-a <- list('krm_mono' = (FindMarkers(dn_immune1, ident.1 = 'KRM', ident.2 = 'Monocyte') %>% rownames_to_column('gene')),
-     'krm_infilt' = (FindMarkers(dn_immune1, ident.1 = 'KRM', ident.2 = 'Infiltrating Mac') %>% rownames_to_column('gene'))
-)
-
-writexl::write_xlsx(a, 'krm_deg.xlsx')
+# a <- list('krm_mono' = (FindMarkers(dn_immune1, ident.1 = 'KRM', ident.2 = 'Monocyte') %>% rownames_to_column('gene')),
+#      'krm_infilt' = (FindMarkers(dn_immune1, ident.1 = 'KRM', ident.2 = 'Infiltrating Mac') %>% rownames_to_column('gene'))
+# )
+# 
+# writexl::write_xlsx(a, 'krm_deg.xlsx')
 
 #DEG_ident(dn_all1)
 #DEG_ident(dn_immune1)
@@ -557,6 +562,10 @@ p_ligand_pearson = vis_ligand_pearson %>%
 
 ligand_target_matrix <- (nichenet_output$ligand_target_matrix)[,c(4,5, 1:3, 6:39)]
 
+ligand_target_matrix %>% make_heatmap_ggplot("Prioritized ligands","Predicted target genes", 
+                                             color = "purple",legend_position = "top", x_axis_position = "top",legend_title = "Regulatory potential") + 
+  scale_fill_gradient2(low = "whitesmoke",  high = "purple") + theme(axis.text.x = element_text(face = "italic"))
+
 
 # Receiver other -- sender KRM
 
@@ -660,7 +669,7 @@ viewPathway("The citric acid (TCA) cycle and respiratory electron transport",
 # trajectory analysis
 pacman::p_load(monocle3)
 
-myeloid_cells <- dn_immune1 %>% subset(idents = c('cDC', 'KRM', 'Monocyte', 'Infiltrating Mac'))
+myeloid_cells <- dn_immune1 %>% subset(idents = c('KRM', 'Monocyte', 'Infiltrating Mac'))
 myeloid_cells <- myeloid_cells %>% RunUMAP(reduction = 'harmony', dims = 1:30)
 
 myeloid_cds <- new_cell_data_set(
