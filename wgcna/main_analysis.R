@@ -98,7 +98,7 @@ Idents(dn_all2) <- dn_all2$cell_type
 
 quickdot(dn_all2, feat = mito)
 
-S#########################################################################
+#########################################################################
 load(file = './raw_data/wgcna/dn_immune_v2.RData')
 
 dn_immune$percent.mt <- PercentageFeatureSet(object = dn_immune, pattern = "^MT-")
@@ -256,7 +256,7 @@ subset_gsea <- function(subset_seurat){
     theme(legend.position = c(0.85, 0.5))
   return(p)
 }
-KRM <- S4Vectors::subset(dn_immune1, idents = 'KRM')
+# KRM <- S4Vectors::subset(dn_immune1, idents = 'KRM')
 Infilt <- S4Vectors::subset(dn_immune1, idents = 'Infiltrating Mac')
 Mono <- S4Vectors::subset(dn_immune1, idents = 'Monocyte')
 
@@ -293,6 +293,21 @@ Heatmap_DEGs <- function(x){
 Heatmap_DEGs(cytokines)
 Heatmap_DEGs(phagocytosis)
 Heatmap_DEGs(fibrosis)
+
+tlr <- c('TLR1', 'TLR2', 'TLR3', 'TLR4',
+         'TNFRSF1A', 'TNFRSF1B', 'LTBR', 'CD40', 'FAS', 'TNFRSF4', 'CD27')
+tlr1 <- c('TLR1', 'TLR2', 'TLR3','TLR4','TLR5','TLR6','TLR7','TLR8','TLR9', 'TLR10')
+
+FoldChange(KRM, ident.1 = 'dn', features = tlr1) %>% select(1) %>% 
+  `colnames<-`('KRM') %>% 
+  ComplexHeatmap::Heatmap(name = ' ',
+                          cluster_rows = FALSE, cluster_columns = FALSE,   
+                          show_column_names = TRUE,
+                          column_names_rot = 30)
+quickdot(dn_immune1, feat = rev(tlr))
+quickdot(dn_immune1, feat = rev(tlr1))
+
+quickdot(dn_immune1, feat = 'IL10RA')
 
 
 OxPhos <- gsea_H$leadingEdge[[1]]
@@ -476,6 +491,21 @@ ggplot(gsea1, aes(x = number, y = value)) +
   scale_color_manual(values = Col[c(1,2,4,5)]) +
   theme(legend.title = element_blank())
 
+for (i in 1:Module_num){
+  hub_df_i <- hub_df_100 %>% filter(module == str_c('KRM', i))
+  enriched <- enrichr(hub_df_i$gene_name, dbs)
+  
+  gsea <- bind_rows(enriched)  %>% mutate(Term = str_replace(Term, ' \\(GO.*', ''))
+  
+  gsea <- gsea %>% select(Term, Adjusted.P.value) %>% 
+    mutate(module = str_c('KRM ', i))
+  gsea1[[i]] <- gsea
+}
+
+gsea1 <- bind_rows(gsea1) 
+gsea1 <- gsea1 %>% mutate(number = factor(letters[1:nrow(gsea1)]) , value = -log10(Adjusted.P.value)) 
+gsea1 %>% filter(str_detect(Term, 'xidat'))
+
 hub_2 <-  hub_df_100 %>% filter(module == 'KRM2')
 enriched_2 <- enrichr(hub_2$gene_name, dbs)
 
@@ -593,7 +623,7 @@ regulonActivity_byCellType_Scaled <- t(scale(t(regulonActivity_byCellType), cent
 Top_10_regulon <- regulonActivity_byCellType %>% as_tibble(rownames = 'gene') %>% 
   mutate(relative = dn / normal) %>% 
   arrange(-relative) %>% 
-  slice(c(1:20, (n()-20):n())) %>% 
+  dplyr::slice(c(1:20, (n()-20):n())) %>% 
   mutate(gene = str_replace(gene, '\\(\\+\\)',''))
 
 col_fun = circlize::colorRamp2(c(0, 1, 3), c("yellow", "white", "green"))

@@ -1,7 +1,5 @@
 pacman::p_load(Seurat, tidyverse)
 
-setwd('./raw_data/attempt_2/221108_st/kpmp_data')
-
 st_21_019 <- Load10X_Spatial(data.dir = './raw_data/st/kpmp_data',
                 filename = '21-019.h5',
                 image = new(
@@ -41,6 +39,7 @@ st_M32 <- Load10X_Spatial(data.dir = getwd(),
 SpatialFeaturePlot(st_21_019, 'PLVAP')+ theme(aspect.ratio = 2.3)
 SpatialFeaturePlot(st_21_019, 'CEBPD')+ theme(aspect.ratio = 2.3)
 SpatialFeaturePlot(st_21_019, 'PLVAP')+ theme(aspect.ratio = 2.3)
+SpatialFeaturePlot(st_21_019, 'COX4I1')+ theme(aspect.ratio = 2.3)
 
 SpatialFeaturePlot(st_M61, 'C1QC')+ theme(aspect.ratio = 1)
 SpatialFeaturePlot(st_M61, 'CEBPD')+ theme(aspect.ratio = 1)
