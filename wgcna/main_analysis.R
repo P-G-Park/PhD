@@ -399,11 +399,10 @@ ggplot(ms, aes(x = umap_1, y = umap_2)) +
 
 save(KRM, file = './raw_data/KRM.Rdata')
 
-
-
 # wgcna
 load(file = './raw_data/KRM.Rdata')
-
+KRM$disease_status %>% table()
+KRM
 pacman::p_load(tidyverse, readxl, Seurat, data.table, ggsci, ggpubr,
                hdWGCNA, cowplot, patchwork, WGCNA, harmony)
 theme_set(theme_cowplot()); set.seed(12345)
@@ -434,7 +433,8 @@ KRM <- KRM %>%
   ResetModuleNames(new_name = "KRM")  %>% 
   ModuleExprScore(n_genes = 25, method='Seurat')
 
-Col <- ggsci::pal_jco(alpha=0.8)(Module_num+1)
+Col0 <- ggsci::pal_jco(alpha=0.8)(Module_num+1)
+Col <- Col0[c(1,2,4,3,5,6)]
 modules <- GetModules(KRM) 
 modules$module_col <- Col[as.factor(modules$color) %>% as.integer()]
 module_col <- modules %>% mutate(module_col = if_else(module == 'grey', 'grey', module_col)) %>% 
@@ -442,8 +442,17 @@ module_col <- modules %>% mutate(module_col = if_else(module == 'grey', 'grey', 
 
 KRM@misc$KRM$wgcna_modules$color <- module_col
 
+
+
 PlotDendrogram(KRM, main='Dendrogram')
+
+ggplot(tibble(clarity = 1, cut = letters[1:6]), aes(clarity, fill = cut)) +
+  geom_bar() +
+  scale_fill_manual(values = c(Col[c(5,2,6,3,1)], 'grey'), labels = c('KRM1', 'KRM2','KRM3','KRM4','KRM5', 'Not defined'))
+
+
 PlotKMEs(KRM, text_size = 3)
+ModuleNetworkPlot(KRM)
 
 hub_df <- GetHubGenes(KRM, n_hubs = 10);hub_df
 hub_df %>% arrange(module, -kME) %>% 
@@ -455,8 +464,6 @@ wrap_plots(ModuleFeaturePlot(KRM, features='hMEs', order=TRUE))
 MEs <- GetMEs(KRM, harmonized=TRUE); 
 mods <- colnames(MEs); mods <- mods[mods != 'grey']
 KRM@meta.data <- cbind(KRM@meta.data, MEs)
-
-DotPlot(KRM, features=mods, group.by = 'disease_status', scale = T)
 
 # GSEA
 pacman::p_load('enrichR')
@@ -475,7 +482,8 @@ for (i in 1:Module_num){
   
   gsea <- bind_rows(enriched)  %>% mutate(Term = str_replace(Term, ' \\(GO.*', ''))
   
-  gsea <- gsea %>% select(Term, Adjusted.P.value) %>% filter(Adjusted.P.value < 0.05) %>% 
+  gsea <- gsea %>% select(Term, Adjusted.P.value) %>% 
+    filter(Adjusted.P.value < 0.05) %>% 
     mutate(module = str_c('KRM ', i))
   gsea1[[i]] <- gsea
 }
@@ -498,16 +506,26 @@ for (i in 1:Module_num){
   gsea <- bind_rows(enriched)  %>% mutate(Term = str_replace(Term, ' \\(GO.*', ''))
   
   gsea <- gsea %>% select(Term, Adjusted.P.value) %>% 
+    #filter(Adjusted.P.value < 0.05) %>% 
     mutate(module = str_c('KRM ', i))
   gsea1[[i]] <- gsea
 }
-
 gsea1 <- bind_rows(gsea1) 
 gsea1 <- gsea1 %>% mutate(number = factor(letters[1:nrow(gsea1)]) , value = -log10(Adjusted.P.value)) 
-gsea1 %>% filter(str_detect(Term, 'xidat'))
+
+gsea2 <- gsea1 %>% filter(str_detect(Term, 'xidat')) 
+gsea2 %>% 
+  ggplot(aes(x = module, y = value)) +
+  geom_col(aes(color = module), fill = NA, linewidth = .75) + xlab('') +
+  ylab('OXPHOS adjusted p-value')+
+  coord_flip() +
+  theme_pubr() +
+  theme(legend.title = element_blank())
 
 hub_2 <-  hub_df_100 %>% filter(module == 'KRM2')
 enriched_2 <- enrichr(hub_2$gene_name, dbs)
+hub_5 <-  hub_df_100 %>% filter(module == 'KRM5')
+enriched_5 <- enrichr(hub_5$gene_name, dbs)
 
 compare_KRM <- KRM@meta.data %>% select(disease_status, starts_with('KRM')) 
 compare_KRM <- compare_KRM[,colnames(compare_KRM) %>% sort()] 
@@ -525,9 +543,46 @@ compare_KRM %>%
                      label.y = 27) + 
   theme_pubr()
 
+
+
+# DMEs
+pacman::p_load(ggrepel, igraph)
+group1 <- KRM@meta.data %>% subset(disease_status == 'dn') %>% rownames
+group2 <- KRM@meta.data %>% subset(disease_status == 'normal') %>% rownames
+
+PlotDMEsVolcano(KRM, FindDMEs(KRM, group1, group2))
+
+HubGeneNetworkPlot(
+  KRM,
+  n_hubs = 3, n_other=5,
+  edge_prop = 0.75,
+  mods = 'all'
+)
+
+c1 <- c('NDUFA1', 'NDUFA2', 'NDUFA3', 'NDUFB1', 'NDUFB2')
+c2 <- c('SDHA', 'SDHB', 'SDHC')
+c3 <- c('UQCRB', 'UQCRQ', 'CYC1')
+c4 <- c('COX5A', 'COX5B', 'COX6C', 'COX8A', 'COX7B')
+c5 <- c('ATP5PD','ATP5PF','ATP5MG', 'ATP5MC2','ATP5MC3', 'ATP5ME', 'ATP5F1E')
+
+library(circlize)
+col_fun = colorRamp2(c(0, 1), c("white", "red"))
+
+FoldChange(KRM, ident.1 = 'dn', features = c(c1, c2, c3, c4, c5)) %>% select(1) %>% 
+  `colnames<-`('KRM') %>% 
+  ComplexHeatmap::Heatmap(name = ' ',col = col_fun,
+                          cluster_rows = FALSE, cluster_columns = FALSE,   
+                          show_column_names = TRUE,
+                          column_names_rot = 30)
+
+
 save(KRM, Module_num,  file = './raw_data/wgcna/wgcna_v1.RData')
 load(file = './raw_data/wgcna/wgcna_v1.RData')
 
+# Network Plot
+library(igraph)
+ModuleNetworkPlot(KRM, mods = 'KRM2')
+?ModuleNetworkPlot
 # 230208 nichenet
 Idents_All <- as.character(Idents(dn_all1))
 Imm_Order <- match(names(Idents(dn_immune1)), names(Idents(dn_all1)))
@@ -568,7 +623,14 @@ nichenet_output = nichenet_seuratobj_aggregate(
 DotPlot(dn_all2, features = nichenet_output$top_ligands %>% rev(), cols = "RdYlBu") + RotatedAxis()
 DotPlot(dn_all2, features = nichenet_output$top_ligands %>% rev(), split.by = "disease_status") + RotatedAxis()
 
-nichenet_output$ligand_differential_expression_heatmap
+p <- nichenet_output$ligand_differential_expression_heatmap
+
+Immune_cluster <- c('SMC/PERI', 'PT', 'PODO', 'DL/tAL', 'CD4+ T', 'DCT/CD-P', 'TAL', 'CD-I',
+                    'CD8+ T, effector', 'NK', 'Neutrophil', 'EC', 'CD8+ T', 'B', 'Infiltrating Mac', 'Monocyte')
+p + scale_x_discrete(labels = Immune_cluster, position = 'top')
+
+?scale_x_discrete
+
 nichenet_output$ligand_target_heatmap
 
 nichenet_output$top_targets %in% OxPhos
@@ -658,44 +720,6 @@ ggplot(Top_10_regulon %>% pivot_longer(2:3), aes(x = name, y = gene)) +
 make_heatmap_ggplot
 
 #################################################################################
-# pathway_analysis_inferring regulator
-pacman::p_load(CIE, rcytoscapejs, clusterProfiler, ReactomePA)
-?runCIE
-KRM_dn_DEG
-CIE::runCIE()
-
-asdf <- KRM_dn_DEG %>% bind_cols(select(org.Hs.eg.db, keys = rownames(KRM_dn_DEG), columns = 'ENTREZID', keytype = 'SYMBOL')) %>% 
-  dplyr::select('entrez' = ENTREZID, 'pval' = p_val_adj, 'fc' = avg_log2FC) %>% 
-  filter(!is.na(entrez)) 
-geneList <- 2^asdf$fc
-names(geneList) <- asdf$entrez
-geneList <- sort(geneList, decreasing  = T)
-y <- gsePathway(geneList, 
-                pvalueCutoff = 0.2,
-                pAdjustMethod = "BH", 
-                verbose = FALSE)
-head(y)
-
-viewPathway("Cristae formation", 
-            readable = TRUE, 
-            foldChange = geneList)
-
-viewPathway("Mitochondrial biogenesis", 
-            readable = TRUE, 
-            foldChange = geneList)
-
-viewPathway("Formation of ATP by chemiosmotic coupling", 
-            readable = TRUE, 
-            foldChange = geneList)
-
-viewPathway("Respiratory electron transport, ATP synthesis by chemiosmotic coupling, and heat production by uncoupling proteins.", 
-            readable = TRUE, 
-            foldChange = geneList)
-
-viewPathway("The citric acid (TCA) cycle and respiratory electron transport", 
-            readable = TRUE, 
-            foldChange = geneList)
-
 # trajectory analysis
 pacman::p_load(monocle3)
 
@@ -736,3 +760,191 @@ plot_cells(myeloid_cds,
 
 save(myeloid_cds, myeloid_cells, file = './raw_data/monocle_v1.Rdata')
 load(file = './raw_data/monocle_v1.Rdata')
+
+
+# cellchat
+pacman::p_load(CellChat, ComplexHeatmap)
+
+
+dn_immune1_dn <- subset(dn_immune1, disease_status == 'dn')
+dn_immune1_normal <- subset(dn_immune1, disease_status == 'normal')
+
+#dn
+
+data_dn <- GetAssayData(dn_immune1_dn, assay = "RNA", slot = "data")
+meta_dn <- data.frame(labels =  Idents(dn_immune1_dn), 
+                       row.names = names(Idents(dn_immune1_dn))) 
+cellchat_dn <- createCellChat(object = data_dn, meta = meta_dn, group.by = "labels")
+cellchat_dn@DB <- CellChatDB.human
+
+cellchat_dn <- cellchat_dn %>% subsetData() %>% 
+  identifyOverExpressedGenes() %>% 
+  identifyOverExpressedInteractions() %>% 
+  projectData(PPI.human)
+cellchat_dn <- cellchat_dn %>% computeCommunProb(raw.use = FALSE) %>%   
+  filterCommunication(min.cells = 10) %>% 
+  computeCommunProbPathway() %>%
+  aggregateNet() %>% 
+  netAnalysis_computeCentrality() %>% 
+  identifyCommunicationPatterns(pattern = "outgoing", k = 3)
+
+netAnalysis_signalingRole_heatmap(cellchat_dn, pattern = "outgoing",
+                                  height = 18)
+netAnalysis_dot(cellchat_dn, pattern = "outgoing")
+
+# normal
+data_normal <- GetAssayData(dn_immune1_normal, assay = "RNA", slot = "data")
+meta_normal <- data.frame(labels =  Idents(dn_immune1_normal), 
+                         row.names = names(Idents(dn_immune1_normal))) 
+cellchat_normal <- createCellChat(object = data_normal, meta = meta_normal, group.by = "labels")
+cellchat_normal@DB <- CellChatDB.human
+
+cellchat_normal <- cellchat_normal %>% subsetData() %>% 
+  identifyOverExpressedGenes() %>% 
+  identifyOverExpressedInteractions() %>% 
+  projectData(PPI.human)
+cellchat_normal <- cellchat_normal %>% 
+  computeCommunProb(raw.use = FALSE) %>%  
+  filterCommunication(min.cells = 10) %>% 
+  computeCommunProbPathway() %>%
+  aggregateNet() %>% 
+  netAnalysis_computeCentrality() %>% 
+  identifyCommunicationPatterns(pattern = "outgoing",k = 3)
+
+
+object.list <- list(old = cellchat_old, young = cellchat_young)
+cellchat <- mergeCellChat(object.list, add.names = names(object.list))
+
+netVisual_diffInteraction(cellchat, weight.scale = T)
+netVisual_diffInteraction(cellchat, sources.use = 'KRM', weight.scale = T, measure = "weight")
+netVisual_diffInteraction(cellchat, targets.use = 'KRM', weight.scale = T, measure = "weight")
+netVisual_heatmap(cellchat,measure = "weight" )
+rankNet(cellchat, mode = "comparison", sources.use = 'KRM', targets.use = 'EC',
+        stacked = T, do.stat = TRUE, measure = 'weight')
+
+
+pacman::p_load(singlecellsignalR)
+LRdb <- SingleCellSignalR::LRdb
+require(SingleCellSignalR)
+
+dn_immune1_dn$class <- as.integer(factor(Idents(dn_immune1_dn)))
+dn_immune1_normal$class <- as.integer(factor(Idents(dn_immune1_normal)))
+
+signal_dn <- SingleCellSignalR::cell_signaling(data = dn_immune1_dn@assays$RNA@data,
+                             genes = rownames(dn_immune1_dn@assays$RNA@data),
+                             cluster = dn_immune1_dn$class,
+                             c.names = levels(factor(Idents(dn_immune1_dn))),
+                             write = FALSE)
+signal_normal <- SingleCellSignalR::cell_signaling(data = dn_immune1_normal@assays$RNA@data,
+                               genes = rownames(dn_immune1_normal@assays$RNA@data),
+                               cluster = dn_immune1_normal$class,
+                               c.names = levels(factor(Idents(dn_immune1_normal))),
+                               write = FALSE)
+
+inter_dn <- inter_network(data = dn_immune1_dn@assays$RNA@data,
+                           signal = signal_dn,
+                           genes = rownames(dn_immune1_dn@assays$RNA@data),
+                          c.names = levels(factor(Idents(dn_immune1_dn))),
+                           cluster = dn_immune1_dn$class, write = FALSE)
+
+inter_normal <- inter_network(data = dn_immune1_normal@assays$RNA@data,
+                           signal = signal_normal,
+                           genes = rownames(dn_immune1_normal@assays$RNA@data),
+                           c.names = levels(factor(Idents(dn_immune1_normal))),
+                           cluster = dn_immune1_normal$class, write = FALSE)
+
+signal_dn
+
+namechange <- function(sig){
+  signal1 <- lapply(sig, function(x){
+    x$cell_L <- colnames(x)[1]
+    x$cell_R <- colnames(x)[2]
+    colnames(x)[1] <- 'gene_L'
+    colnames(x)[2] <- 'gene_R'
+    return(x)})
+  signal1 <- do.call(rbind, signal1)
+  return(signal1)
+}
+
+interest_dn <- namechange(signal_dn) %>% filter(cell_R == 'KRM', cell_L %in% c('CD4+ T', 'CD8+ T', 'CD8+ T, effector'))
+
+
+
+two_chord <- function(x, cellname){
+  circos.par(canvas.ylim=c(-1.2,1.2), # edit  canvas size 
+             #track.margin = c(0.01, 0.05), # adjust bottom and top margin
+             track.height = 0.3)
+  chordDiagram(chord(x),
+               group = structure(c(x$cell_L, x$cell_R),
+                                 names = c(x$gene_L, x$gene_R)),
+               annotationTrack = 'none', col = col_7[1],
+               directional = 1, direction.type = c("diffHeight"), diffHeight = -mm_h(2), 
+               preAllocateTracks = list(track.height = mm_h(4)),
+               link.arr.type = 'big.arrow')
+  circos.track(ylim = c(0,1), track.index = 1, panel.fun = function(x, y) {
+    circos.text(CELL_META$xcenter, CELL_META$ylim[1] - mm_y(-6), CELL_META$sector.index, 
+                facing = "clockwise", niceFacing = TRUE, adj = c(0, 1))
+  }, bg.border = NA)
+  highlight.sector(x$gene_L,  
+                   text = "KRM",col = col_7[2], 
+                   cex = 0.8, text.col = "white", niceFacing = TRUE,
+                   track.index = 1,  lwd = 10)
+  highlight.sector(x$gene_R, 
+                   text = cellname, col = col_7[3], 
+                   cex = 0.8, text.col = "white", niceFacing = TRUE,
+                   track.index = 1,  lwd = 10)
+}
+
+require(circlize)
+col_7 <- ggsci::pal_nejm(alpha=0.6)(7)
+chord <- function(x){tibble(from = x$gene_L, to = x$gene_R, value = x$LRscore)}
+
+
+interest_dn1 <- interest_dn %>% filter(LRscore>=0.85)
+two_chord(interest_dn, 'KRM')
+interest_dn
+
+chordDiagram(chord(interest_dn),
+             group = structure(c(interest_dn$cell_L, interest_dn$cell_R),
+                               names = c(interest_dn$gene_L, interest_dn$gene_R)),
+             annotationTrack = 'none', col = col_7[1],
+             directional = 1, direction.type = c("diffHeight"), diffHeight = -mm_h(2), 
+             preAllocateTracks = list(track.height = mm_h(4)),
+             link.arr.type = 'big.arrow')
+
+visualize_interactions(signal_dn, show.in = c(50))
+visualize_interactions(signal_dn, show.in = c(60))
+visualize_interactions(signal_dn, show.in = c(50, 60, 70))
+
+visualize_interactions(signal_normal, show.in = c(53))
+visualize_interactions(signal_normal, show.in = 60)
+visualize_interactions(signal_normal, show.in = c(53, 60, 71))
+
+circos.clear()
+chordDiagram(chord(interest_dn1), annotationTrack = 'none')
+circos.track(ylim = c(0,1), track.index = 1, panel.fun = function(x, y) {
+  circos.text(CELL_META$xcenter, CELL_META$ylim[1] - mm_y(-6), CELL_META$sector.index, 
+              facing = "clockwise", niceFacing = TRUE, adj = c(0, 1))
+}, bg.border = NA)
+
+highlight.sector(interest_dn1 %>% filter(cell_L == 'CD4+ T') %>% pull(gene_L),  
+                 text = "CD4+ T",col = col_7[2], 
+                 cex = 0.8, text.col = "white", niceFacing = TRUE,
+                 track.index = 1,  lwd = 10)
+highlight.sector(interest_dn1 %>% filter(cell_L == 'CD8+ T') %>% pull(gene_L),  
+                 text = "CD8+ T",col = col_7[2], 
+                 cex = 0.8, text.col = "white", niceFacing = TRUE,
+                 track.index = 1,  lwd = 10)
+highlight.sector(interest_dn1 %>% filter(cell_L == 'CD8+ T, effector') %>% pull(gene_L),  
+                 text = "CD8+ T, effector",col = col_7[2], 
+                 cex = 0.8, text.col = "white", niceFacing = TRUE,
+                 track.index = 1,  lwd = 10)
+highlight.sector(interest_dn1$gene_R, 
+                 text = 'KRM', col = col_7[3], 
+                 cex = 0.8, text.col = "white", niceFacing = TRUE,
+                 track.index = 1,  lwd = 10)
+
+
+interest_dn1 %>% transmute(from = str_c(cell_L, ' ' ,gene_L), to = gene_R, value = LRscore) %>% 
+  chordDiagram(annotationTrack = 'none')
+circos.info()
